@@ -126,6 +126,8 @@ impl RrtPlanner {
         None
     }
 
+    /// 检查点是否在边界内且未被占据。
+    #[allow(clippy::too_many_arguments)] // 几何包围盒参数，语义清晰
     fn point_clear(
         &self,
         grid: &OccupancyGrid3D,
@@ -142,6 +144,8 @@ impl RrtPlanner {
         !grid.is_occupied(Vec3::new(x, y, 0.0))
     }
 
+    /// 检查线段上各采样点是否全部无障碍。
+    #[allow(clippy::too_many_arguments)] // 几何包围盒参数，语义清晰
     fn segment_clear(
         &self,
         grid: &OccupancyGrid3D,

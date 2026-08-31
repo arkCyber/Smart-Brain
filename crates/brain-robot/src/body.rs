@@ -26,3 +26,23 @@ pub trait RobotBody: Send {
 
 /// 对 `RobotBody` 的盒装别名（用于异构容器）。
 pub type BodyCommandSink = Box<dyn RobotBody>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mock::MockRobotBody;
+    use crate::state::RobotKind;
+
+    #[test]
+    fn boxed_body_is_object_safe() {
+        let mut body: BodyCommandSink = Box::new(MockRobotBody::new(RobotKind::Wheeled));
+        assert_eq!(body.kind(), RobotKind::Wheeled);
+        let st = body.read_state().unwrap();
+        assert_eq!(st.kind, RobotKind::Wheeled);
+        // 异构容器：可把不同形态装进同一 sink 集合。
+        let _others: Vec<BodyCommandSink> = vec![
+            Box::new(MockRobotBody::new(RobotKind::Car)),
+            Box::new(MockRobotBody::new(RobotKind::Manipulator)),
+        ];
+    }
+}

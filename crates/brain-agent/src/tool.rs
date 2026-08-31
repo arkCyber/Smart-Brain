@@ -12,11 +12,14 @@ pub trait Tool: Send + Sync {
     fn run(&self, args: &HashMap<String, String>) -> Result<String>;
 }
 
+/// 工具可调用的函数签名（接收参数字符串映射，返回文本结果）。
+type ToolFn = Arc<dyn Fn(&HashMap<String, String>) -> Result<String> + Send + Sync>;
+
 /// 用闭包把一个能力封装成工具（无需为每个能力写一个结构体）。
 pub struct FnTool {
     name: String,
     description: String,
-    f: Arc<dyn Fn(&HashMap<String, String>) -> Result<String> + Send + Sync>,
+    f: ToolFn,
 }
 
 impl FnTool {

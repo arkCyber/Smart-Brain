@@ -18,8 +18,10 @@ pub fn run() {
     world.set_obstacle(15, 14);
     world.set_obstacle(14, 15);
 
-    let mut cfg = AutopilotConfig::default();
-    cfg.use_rrt = true; // 用 RRT 做全局路径引导（连续空间绕障）
+    let cfg = AutopilotConfig {
+        use_rrt: true, // 用 RRT 做全局路径引导（连续空间绕障）
+        ..AutopilotConfig::default()
+    };
     let mut ap = Autopilot::new(cfg, world.width(), world.height(), (11.0, 3.0, 0.0));
 
     let stats = ap.run(&world, 800);

@@ -204,3 +204,86 @@ impl RobotBody for MockRobotBody {
 
     fn shutdown(&mut self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::command::{EffectorCommand, LocomotionMode, Task, TaskTarget};
+
+    fn navigate_to(p: Vec3) -> EffectorCommand {
+        EffectorCommand {
+            timestamp: 0,
+            locomotion: LocomotionMode::Navigate,
+            task: Task::NavigateTo(TaskTarget::Point(p)),
+        }
+    }
+
+    #[test]
+    fn navigate_moves_base_toward_point() {
+        let mut body = MockRobotBody::new(RobotKind::Wheeled);
+        let start = body.read_state().unwrap().base.pose.position;
+        body.send_command(&navigate_to(Vec3::new(10.0, 0.0, 0.0)))
+            .unwrap();
+        let end = body.read_state().unwrap().base.pose.position;
+        assert!(end.x > start.x, "should move along +x");
+        assert!((end.y - start.y).abs() < 1e-6);
+        assert!((end.z - start.z).abs() < 1e-6);
+    }
+
+    #[test]
+    fn stop_zeroes_velocity() {
+        let mut body = MockRobotBody::new(RobotKind::Wheeled);
+        body.send_command(&navigate_to(Vec3::new(5.0, 5.0, 0.0)))
+            .unwrap();
+        body.send_command(&EffectorCommand::stop(0)).unwrap();
+        let st = body.read_state().unwrap();
+        assert_eq!(st.base.linear_vel, Vec3::ZERO);
+        assert_eq!(st.base.angular_vel, Vec3::ZERO);
+    }
+
+    #[test]
+    fn grasp_enforces_foot_contact() {
+        let mut body = MockRobotBody::new(RobotKind::Quadruped);
+        body.send_command(&EffectorCommand {
+            timestamp: 0,
+            locomotion: LocomotionMode::Stand,
+            task: Task::Grasp(TaskTarget::None),
+        })
+        .unwrap();
+        let st = body.read_state().unwrap();
+        assert!(st.contacts.iter().all(|c| c.in_contact));
+    }
+
+    #[test]
+    fn joint_target_is_applied() {
+        let mut body = MockRobotBody::new(RobotKind::Manipulator);
+        body.send_command(&EffectorCommand {
+            timestamp: 0,
+            locomotion: LocomotionMode::Idle,
+            task: Task::NavigateTo(TaskTarget::Joint {
+                index: 2,
+                target: 1.5,
+            }),
+        })
+        .unwrap();
+        let st = body.read_state().unwrap();
+        assert_eq!(st.joints[2].position, 1.5);
+    }
+
+    #[test]
+    fn car_has_four_wheel_contacts() {
+        let mut body = MockRobotBody::new(RobotKind::Car);
+        let st = body.read_state().unwrap();
+        assert_eq!(st.contacts.len(), 4);
+    }
+
+    #[test]
+    fn vessel_has_thruster_joints() {
+        let mut body = MockRobotBody::new(RobotKind::SurfaceVessel);
+        let st = body.read_state().unwrap();
+        let names: Vec<&str> = st.joints.iter().map(|j| j.name.as_str()).collect();
+        assert!(names.contains(&"thruster_port"));
+        assert!(names.contains(&"thruster_stbd"));
+        assert!(names.contains(&"rudder"));
+    }
+}

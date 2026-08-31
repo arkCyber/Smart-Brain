@@ -13,6 +13,18 @@ log.workspace = true
 
 # 可选：真实 ONNX Runtime 推理后端。默认关闭以保持构建轻量；
 # 真机部署时启用 `onnx` 并引入 `ort` crate（见 README）。
+# 使用 load-dynamic：编译期不下载 onnxruntime 二进制，运行时经 libloading 加载
+# 系统安装的 onnxruntime（Jetson/RK3588 上可配 TensorRT/RKNN 的 EP）。
 [features]
-onnx = []
+onnx = ["dep:ort", "dep:ndarray"]
 default = []
+
+[dependencies.ort]
+version = "2.0.0-rc.13"
+optional = true
+default-features = false
+features = ["ndarray", "load-dynamic"]
+
+[dependencies.ndarray]
+version = "0.17"
+optional = true

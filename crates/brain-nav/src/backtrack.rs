@@ -49,8 +49,11 @@ impl Backtracker {
         let _ = now;
         if let Some(last) = self.last_crumb {
             if last.sub(pos).norm() < self.min_spacing {
-                // 更新最近面包屑位置即可，避免过密。
-                *self.crumbs.last_mut().unwrap() = pos;
+                // 更新最近面包屑位置即可，避免过密。若 `max` 为 0（不保留历史），
+                // `crumbs` 可能为空，需安全处理而非 panic。
+                if let Some(slot) = self.crumbs.last_mut() {
+                    *slot = pos;
+                }
                 self.last_crumb = Some(pos);
                 return;
             }
@@ -92,6 +95,11 @@ impl Backtracker {
     /// 已记录面包屑数量。
     pub fn len(&self) -> usize {
         self.crumbs.len()
+    }
+
+    /// 是否尚未记录任何面包屑。
+    pub fn is_empty(&self) -> bool {
+        self.crumbs.is_empty()
     }
 
     /// 全部面包屑（按时间顺序）。
@@ -153,5 +161,16 @@ mod tests {
             b.record(0, Vec3::new(i as f32, 0.0, 0.0));
         }
         assert!(b.len() <= 3);
+    }
+
+    #[test]
+    fn zero_max_does_not_panic() {
+        // 回归：`max == 0` 时 `last_crumb` 仍为 Some 但 `crumbs` 被清空，
+        // 更新最近面包屑不应 panic。
+        let mut b = Backtracker::new(0, 1.0);
+        b.record(0, Vec3::new(0.0, 0.0, 0.0));
+        b.record(0, Vec3::new(0.1, 0.0, 0.0)); // 太近 → 走“更新”分支
+        b.record(0, Vec3::new(0.2, 0.0, 0.0));
+        assert_eq!(b.len(), 0); // 不保留历史
     }
 }

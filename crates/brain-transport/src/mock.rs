@@ -63,3 +63,65 @@ impl FcuTransport for MockTransport {
 
     fn shutdown(&mut self) {}
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_message::telemetry::FixType;
+    use brain_message::CommandTarget;
+
+    fn cmd(mode: Mode) -> Command {
+        Command {
+            timestamp: 0,
+            mode,
+            target: CommandTarget::None,
+        }
+    }
+
+    #[test]
+    fn default_has_fix3d_on_ground() {
+        let mut t = MockTransport::new();
+        let telem = t.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(telem.gps.fix_type, FixType::Fix3D);
+        assert_eq!(telem.gps.satellites, 12);
+        assert_eq!(telem.gps.alt, 0.0);
+    }
+
+    #[test]
+    fn takeoff_raises_altitude_and_records_command() {
+        let mut t = MockTransport::new();
+        t.send_command(&cmd(Mode::Takeoff)).unwrap();
+        assert_eq!(t.command_count(), 1);
+        let telem = t.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(telem.gps.alt, 50.0);
+    }
+
+    #[test]
+    fn land_descends_back_to_ground() {
+        let mut t = MockTransport::new();
+        t.send_command(&cmd(Mode::Takeoff)).unwrap();
+        t.send_command(&cmd(Mode::Land)).unwrap();
+        let telem = t.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(telem.gps.alt, 0.0);
+    }
+
+    #[test]
+    fn track_sweeps_yaw() {
+        let mut t = MockTransport::new();
+        let yaw_before = t.try_recv_telemetry().unwrap().unwrap().attitude.yaw;
+        t.send_command(&cmd(Mode::Track)).unwrap();
+        let yaw_after = t.try_recv_telemetry().unwrap().unwrap().attitude.yaw;
+        assert!(yaw_after > yaw_before);
+    }
+
+    #[test]
+    fn inject_telemetry_overrides_state() {
+        let mut t = MockTransport::new();
+        let mut telem = Telemetry::default_at(7);
+        telem.battery.remaining_pct = 33.0;
+        t.inject_telemetry(telem.clone());
+        let got = t.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(got.timestamp, 7);
+        assert_eq!(got.battery.remaining_pct, 33.0);
+    }
+}

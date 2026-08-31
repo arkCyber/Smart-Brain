@@ -774,8 +774,10 @@ mod tests {
         w.set_obstacle(26, 23);
         w.set_obstacle(40, 17);
         w.set_obstacle(41, 17);
-        let mut cfg = CarAutopilotConfig::default();
-        cfg.use_rrt = true;
+        let cfg = CarAutopilotConfig {
+            use_rrt: true,
+            ..CarAutopilotConfig::default()
+        };
         let mut car = CarAutopilot::new(cfg, w.width(), w.height(), (3.0, 20.0, 0.0));
         car.set_goal(Vec3::new(55.0, 20.0, 0.0));
         let mut done = false;
@@ -829,9 +831,11 @@ mod tests {
         w.set_obstacle(26, 23);
         w.set_obstacle(40, 17);
         w.set_obstacle(41, 17);
-        let mut cfg = CarAutopilotConfig::default();
-        cfg.use_rrt = true;
-        cfg.use_dubins = true;
+        let cfg = CarAutopilotConfig {
+            use_rrt: true,
+            use_dubins: true,
+            ..CarAutopilotConfig::default()
+        };
         let mut car = CarAutopilot::new(cfg, w.width(), w.height(), (3.0, 20.0, 0.0));
         car.set_goal(Vec3::new(55.0, 20.0, 0.0));
         let mut done = false;
@@ -861,8 +865,10 @@ mod tests {
         w.set_obstacle(26, 23);
         w.set_obstacle(40, 17);
         w.set_obstacle(41, 17);
-        let mut cfg = CarAutopilotConfig::default();
-        cfg.use_rrt = true;
+        let cfg = CarAutopilotConfig {
+            use_rrt: true,
+            ..CarAutopilotConfig::default()
+        };
         let mut car = CarAutopilot::new(cfg, w.width(), w.height(), (3.0, 20.0, 0.0));
         car.set_goal(Vec3::new(55.0, 20.0, 0.0));
         let v_max = car.cfg.ackermann.v_max;
@@ -895,9 +901,11 @@ mod tests {
         // 开放式场景：车需沿 Reeds-Shepp 轨迹驶入一个要求倒车/调向的泊车位，
         // 验证“最终接近阶段切换倒车跟随”确实能用倒车抵达目标位姿。
         let w = World::new(60, 40);
-        let mut cfg = CarAutopilotConfig::default();
-        cfg.use_reeds_shepp = true;
-        cfg.use_rrt = true;
+        let cfg = CarAutopilotConfig {
+            use_reeds_shepp: true,
+            use_rrt: true,
+            ..CarAutopilotConfig::default()
+        };
         let mut car = CarAutopilot::new(cfg, w.width(), w.height(), (6.0, 20.0, 0.0));
         // 目标位姿在右上方、朝向 -90°（需要前进再倒车入位）。
         let goal = (10.0f32, 24.0f32, -std::f32::consts::FRAC_PI_2);

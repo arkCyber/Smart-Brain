@@ -9,5 +9,9 @@
 # OS
 .DS_Store
 
+# 用户生成的真机配置文件（默认加载 config.json，可经 SMART_BRAIN_CONFIG 指定）。
+# 模板见 config.example.json，勿提交本地私有配置。
+/config.json
+
 # Note: Cargo.lock is committed for reproducible builds (workspace contains binaries).
 

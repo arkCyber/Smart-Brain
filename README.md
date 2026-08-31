@@ -44,13 +44,24 @@ cd Smart-Brain
 # 构建整个 workspace（默认无系统级依赖，开箱即用）
 cargo build
 
-# 运行全部单元测试（159 项）
+# 运行全部单元测试（222 项）
 cargo test
 
 # 运行完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面
 # 随后演示 Fail-safe 看门狗在“大脑卡死”时强制进入自动悬停（Loiter）
 cargo run -p brain-node
 ```
+
+**配置加载**：`brain-node` 启动时依次尝试加载配置，优先级为
+1. 环境变量 `SMART_BRAIN_CONFIG` 指定的路径
+2. 工作目录下的 `config.json`
+3. 仓库自带的 `config.example.json`
+4. 以上均缺失时回退到内置默认值
+
+主程序会用加载到的 `node_id`、`failsafe_timeout_ms`、`fcu.transport`（选择串口/CAN/
+UDP/mock 传输）与 `safety`（围栏/电量/pre-arm 阈值）等配置。真机部署时复制
+`config.example.json` 为 `config.json` 并按需修改即可（`config.json` 已被
+`.gitignore` 忽略，避免提交本地私有配置）。
 
 示例输出：
 
@@ -86,22 +97,27 @@ heartbeat ok, watchdog armed.
 
 ### brain-transport（与小脑的物理链路）
 `FcuTransport` trait + `MockTransport`（SITL 仿真）、`UdpTransport`、
-`SerialTransport`（真机接线，`serial` feature 启用）。UDP/串口均使用
-`brain-message::frame`（长度 + CRC-16 + `FrameReader`）做可靠分帧，修复了
+`SerialTransport`（真机接线，`serial` feature 启用）、`CanTransport`（Linux
+SocketCAN，`can` feature 启用，仅 Linux；编解码为纯函数可离线测试）。UDP/串口
+均使用 `brain-message::frame`（长度 + CRC-16 + `FrameReader`）做可靠分帧，修复了
 "每条消息换一行/每次新建 BufReader 丢缓冲"的问题，正确处理半包/粘包。
 内置 **MAVLink 风格二进制编解码**（`mavlink`）：把 `Command`/`Telemetry` 封装成
 `[msgid, 定长小端负载]`，再经帧编解码走线缆；`MavLinkTransport` 实现 `FcuTransport`，
 便于大脑与 Pixhawk/STM32 用标准协议互通。
 
-### brain-state（状态机 + Fail-safe 看门狗）
+### brain-state（状态机 + Fail-safe + 安全原语）
 - `StateMachine`：大脑控制意图的合法迁移校验（防止非法状态跳转）。
 - `FailsafeWatchdog`：心跳监督，**超过阈值（默认 50ms）未喂狗即触发**，
   强制小脑进入自动悬停/一键返航，实现安全兜底。
+- `safety` 模块：**地理围栏**（水平半径 + 高度范围越界判定）、**电量监视**
+  （低电/返航/临界分级告警）、**起飞前自检 pre-arm**（GPS 3D + 卫星数 + 电量 +
+  home + 看门狗 + 链路），以及把三者归一为 `FlightPermission` 的统一飞行权限判定。
 
 ### brain-perception（AI 感知推理）
-`ModelBackend` trait 抽象推理后端：`MockModelBackend`（仿真）开箱即用；
-`OnnxModelBackend` 预留 ONNX Runtime 接入点（真机配合 TensorRT/RKNN 量化
-INT8 模型）。`VisionPipeline` 组织“取帧→推理→检测/跟踪”并发布到总线。
+`ModelBackend` trait 抽象推理后端：`MockModelBackend`（仿真）开箱即用；`OnnxModelBackend`
+（`onnx` feature）**已接通真实 ONNX Runtime**（`ort` crate，`load-dynamic` 方式：编译期不下载
+onnxruntime、运行时加载系统库），并内置 **YOLOv8 输出解码 + 类别感知 NMS**（`nms` 模块，
+纯函数、离线可测）。`VisionPipeline` 组织“取帧→推理→检测/跟踪”并发布到总线。
 
 ### brain-behavior-tree（决策层）
 自研行为树框架：`Sequence`/`Selector` 组合节点、`Inverter`/`Retry` 装饰器，
@@ -112,7 +128,9 @@ INT8 模型）。`VisionPipeline` 组织“取帧→推理→检测/跟踪”并
 航点任务模型、`MissionExecutor`（逐个下发航点）、`SwarmLink`（蜂群态势
 广播，JSON 可序列化，便于接入 Zenoh/UDP）。支持**任务文件序列化**（`to_json`/
 `from_json`/`save`/`load`）与**进度跟踪**（`MissionProgress`：航点完成数、百分比、
-已飞/总/剩余距离，`update_position` 累计里程）。
+已飞/总/剩余距离，`update_position` 累计里程）。新增 **`swarm_coord`**：**Leader
+选举**（按 `node_id` 或电量，全网确定性一致）与**任务分配**（`TaskAllocator`
+轮询 / 按优先级，`SwarmCoordinator::plan` 由 leader 分发给全体成员）。
 
 ### brain-robot（具身抽象层）
 让“大脑”适用于任意具身机器人的**关键 crate**：`RobotKind`（Aerial/Quadruped/
@@ -221,9 +239,14 @@ DWA 局部避障**（采样 `(速度,前轮转角)`，尊重最小转弯半径�
 
 ### brain-node（主程序）
 把上述模块装配成闭环，驱动一次完整任务演示与 fail-safe 演示，并展示
-`RobotBody` 具身抽象。含 **19 段演示**，其中 `comprehensive_demo` 串联"任务文件
+`RobotBody` 具身抽象。含 **21 段演示**，其中 `comprehensive_demo` 串联"任务文件
 加载 → 执行+进度上报 → 蜂群协同 → MAVLink 命令下发"的完整流水线，`car_driving_demo`
-演示阿克曼汽车的闭环自主驾驶与 `CarBody` 具身抽象。
+演示阿克曼汽车的闭环自主驾驶与 `CarBody` 具身抽象，`parallel` 演示**多线程并行
+流水线**（感知线程 + 决策线程共享线程安全 `DataBus`，验证跨线程数据流通），
+`safety_guard` 把**安全监督器**（围栏/电量/pre-arm）接入任务循环做指令兜底覆盖，
+`async_runtime`（`--features async`）演示 **tokio 异步任务并发**（感知/决策作为
+async 任务在单一运行时上调度），`swarm_coord_demo` 演示**蜂群 Leader 选举 +
+任务分配**（全网确定性一致 + JSON 分配表）。
 
 ---
 
@@ -233,15 +256,18 @@ DWA 局部避障**（采样 `(速度,前轮转角)`，尊重最小转弯半径�
 
 - **第一阶段 · 原型/仿真**：本工作区已用 mock 飞控 + mock 推理跑通
   “起飞→巡航→发现目标→跟踪→降落”闭环。下一步可接入 Gazebo/AirSim SITL。
-- **第二阶段 · Rust 底层与中间件**：把 `brain-transport` 从 mock 切到真实
-  串口/CAN（启用 `serial` feature），在 Jetson/RK3588 上配置 Ubuntu +
-  RT-Preempt 增强实时性。
-- **第三阶段 · AI 模型工程化**：地面用 PyTorch 训练 → 导出 `.onnx` →
-  TensorRT/RKNN 量化为 INT8 → 在 `brain-perception` 接入 `ort`/WasmEdge。
-- **第四阶段 · 真机联调与边界测试**：拉线测试、用 `FailsafeWatchdog` 兜底，
-  一旦大脑延迟超过 50ms 立即剥夺控制权进入自动悬停/返航。
+- **第二阶段 · Rust 底层与中间件**：`brain-transport` 已提供 `SerialTransport`
+  （`serial`）与 Linux `CanTransport`（`can`，SocketCAN）；真机在 Jetson/RK3588
+  上配置 Ubuntu + RT-Preempt 增强实时性。
+- **第三阶段 · AI 模型工程化**：`brain-perception` 已接通 `ort`（`onnx` feature，
+  YOLOv8 解码 + NMS）；地面用 PyTorch 训练 → 导出 `.onnx` → TensorRT/RKNN 量化
+  为 INT8 → 运行时加载系统 onnxruntime。
+- **第四阶段 · 真机联调与边界测试**：拉线测试、用 `FailsafeWatchdog` + `safety`
+  模块（围栏/电量/pre-arm）兜底，一旦大脑延迟超过 50ms 立即剥夺控制权进入自动
+  悬停/返航。
 
-**当前原型所处阶段**：第一阶段（SITL 仿真闭环）已完成，可据此继续。
+**当前原型所处阶段**：第一阶段（SITL 仿真闭环）已完成，真机接入点（串口/CAN/
+ONNX）已就绪，可据此继续。
 
 ---
 

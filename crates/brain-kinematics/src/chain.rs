@@ -85,7 +85,7 @@ impl KinematicChain {
         let (ee, frames) = self.forward_kinematics();
         let n = self.dof();
         let mut jac = vec![vec![0.0f32; n]; 6];
-        for i in 0..n {
+        for (i, link) in self.links.iter().enumerate() {
             // 关节 i 的原点 = 处理 link i 之前的帧（i=0 时为原点）。
             let origin = frames
                 .get(i.wrapping_sub(1))
@@ -95,7 +95,7 @@ impl KinematicChain {
                 .get(i.wrapping_sub(1))
                 .map(|f| f.rotation)
                 .unwrap_or(Quat::IDENTITY);
-            let axis_world = base_rot.rotate_vec3(self.links[i].axis);
+            let axis_world = base_rot.rotate_vec3(link.axis);
             // 线速度部分：axis × (ee - joint_origin)。
             let lever = ee.position.sub(origin);
             let lin = axis_world.cross(lever);

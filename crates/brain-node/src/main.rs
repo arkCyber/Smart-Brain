@@ -6,6 +6,8 @@
 //! 并演示 Fail-safe 看门狗在“大脑卡死”时强制接管进入自动悬停。
 
 mod agent_demo;
+#[cfg(feature = "async")]
+mod async_runtime;
 mod autopilot_demo;
 mod boat_demo;
 mod car_driving_demo;
@@ -13,6 +15,9 @@ mod comprehensive_demo;
 mod embodiment;
 mod indoor;
 mod kalman_demo;
+mod parallel;
+mod safety_guard;
+mod swarm_coord_demo;
 mod tree_builder;
 mod zenoh_demo;
 mod zenoh_fcu_demo;
@@ -21,24 +26,38 @@ use brain_behavior_tree::core::{BrainOutput, Tree};
 use brain_behavior_tree::Status;
 use brain_core::config::BrainConfig;
 use brain_core::time::instant_now;
+use brain_core::Vec3;
 use brain_message::{Command, CommandTarget, Mode, Telemetry};
 use brain_middleware::bus::topics;
 use brain_middleware::DataBus;
 use brain_mission::{Mission, SwarmLink, SwarmRole, SwarmShare, Waypoint};
 use brain_perception::backend::MockModelBackend;
 use brain_perception::pipeline::{VisionConfig, VisionPipeline};
-use brain_state::{FailsafeWatchdog, FlightState, StateMachine};
-use brain_transport::{FcuTransport, MockTransport};
+use brain_state::safety::{BatteryMonitor, Geofence, PreArmCheck, PreArmConfig};
+use brain_state::{FailsafeWatchdog, FlightState, StateMachine, WatchdogStatus};
+use brain_transport::MockTransport;
 
 /// 主流程：装配并运行一次完整任务演示。
-fn run_mission_demo(iterations: usize) {
-    let cfg = BrainConfig::default();
+fn run_mission_demo(iterations: usize, cfg: &BrainConfig) {
     cfg.validate().expect("invalid config");
 
     let bus = DataBus::new();
 
-    // ---- 硬件接口：与“小脑”的传输（默认 mock = SITL） ----
-    let mut transport = MockTransport::new();
+    // ---- 硬件接口：与“小脑”的传输（按配置选择，默认 mock = SITL）----
+    // 真机在 config.json 里把 transport 设为 serial/can/udp；本机无硬件时回退 mock。
+    let mut transport = match brain_transport::open_transport(&cfg.fcu.transport) {
+        Ok(t) => {
+            log::info!("transport backend: {}", cfg.fcu.transport);
+            t
+        }
+        Err(e) => {
+            log::warn!(
+                "transport {} unavailable ({e}); falling back to mock",
+                cfg.fcu.transport
+            );
+            Box::new(MockTransport::new())
+        }
+    };
 
     // ---- 感知层：仿真推理后端 ----
     let mut perception =
@@ -85,6 +104,24 @@ fn run_mission_demo(iterations: usize) {
     let mut tree = Tree::new(tree_builder::build_mission_tree());
     let mut output = BrainOutput::idle();
 
+    // ---- 安全监督：围栏 / 电量 / pre-arm（兜底覆盖指令），参数来自配置 ----
+    let s = cfg.safety;
+    let safety = safety_guard::SafetySupervisor::new(
+        Geofence::new(
+            Vec3::ZERO,
+            s.geofence_radius_m,
+            s.geofence_max_altitude_m,
+            0.0,
+        ),
+        BatteryMonitor::new(s.battery_rth_pct, s.battery_critical_pct, s.battery_low_pct),
+        PreArmCheck::new(PreArmConfig {
+            min_gps_satellites: s.prearm_min_gps_satellites,
+            require_fix3d: s.prearm_require_fix3d,
+            min_battery_pct: s.prearm_min_battery_pct,
+            require_home: s.prearm_require_home,
+        }),
+    );
+
     println!("\n=== Smart-Brain demo: {} ticks ===\n", iterations);
 
     let mut cmd_counter = 0usize;
@@ -111,12 +148,27 @@ fn run_mission_demo(iterations: usize) {
             landing_requested = true;
         }
 
-        // 3. 执行：把意图转成飞控指令下发。
-        let cmd = Command {
+        // 3. 执行：把意图转成飞控指令下发。先经安全监督覆盖（越界→返航，低电→降落）。
+        let telem_now = bus
+            .topic::<Telemetry>(topics::TELEMETRY)
+            .and_then(|t| t.peek());
+        let pos = telem_now
+            .as_ref()
+            .map(|t| Vec3::new(0.0, 0.0, -t.gps.alt))
+            .unwrap_or(Vec3::ZERO);
+        let battery_pct = telem_now
+            .as_ref()
+            .map(|t| t.battery.remaining_pct)
+            .unwrap_or(100.0);
+        let watchdog_armed = watchdog.status() == WatchdogStatus::Armed;
+        let mut cmd = Command {
             timestamp: now,
             mode: output.mode,
             target: output.target.clone(),
         };
+        if safety.apply(&mut cmd, pos, battery_pct, watchdog_armed) {
+            log::warn!("safety override -> {:?}", cmd.mode);
+        }
         transport.send_command(&cmd).expect("send command");
         let _ = bus.publish(topics::COMMAND, cmd.clone(), now);
         cmd_counter += 1;
@@ -194,8 +246,8 @@ fn run_mission_demo(iterations: usize) {
 }
 
 /// 演示 Fail-safe：模拟大脑“卡死”（停止喂狗），验证看门狗强制进入 Loiter。
-fn demonstrate_failsafe() {
-    let mut watchdog = FailsafeWatchdog::new(50);
+fn demonstrate_failsafe(timeout_ms: u64) {
+    let mut watchdog = FailsafeWatchdog::new(timeout_ms);
     println!(
         "\n=== Fail-safe demo (watchdog timeout = {}ms) ===",
         watchdog.timeout()
@@ -223,11 +275,22 @@ fn demonstrate_failsafe() {
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // 加载配置：优先环境变量 SMART_BRAIN_CONFIG 指向的路径，其次 config.json，
+    // 最后回退到仓库自带的 config.example.json；全部缺失时使用内置默认值。
+    let env_path = std::env::var("SMART_BRAIN_CONFIG").unwrap_or_else(|_| String::new());
+    let mut candidates: Vec<&str> = Vec::new();
+    if !env_path.is_empty() {
+        candidates.push(&env_path);
+    }
+    candidates.push("config.json");
+    candidates.push("config.example.json");
+    let cfg = BrainConfig::load_candidates(&candidates);
+
     // 默认运行一次完整任务演示（SITL）。
-    run_mission_demo(30);
+    run_mission_demo(30, &cfg);
 
     // 演示独立看门狗的安全兜底机制。
-    demonstrate_failsafe();
+    demonstrate_failsafe(cfg.failsafe_timeout_ms);
 
     // 演示“无人机只是众多身体之一”：通过统一 RobotBody 接口驱动。
     embodiment::demonstrate(0);
@@ -256,8 +319,23 @@ fn main() {
     // 卡尔曼滤波传感器融合（IMU 预测 + VO 测量）演示。
     kalman_demo::run();
 
+    // 并行（多线程）流水线：感知线程 + 决策线程共享总线。
+    parallel::run_parallel_demo();
+
+    // 安全监督器：geofence / 电量 / pre-arm 集成演示。
+    safety_guard::run_safety_demo();
+
+    // tokio 异步流水线（需 `--features async` 编译）。
+    #[cfg(feature = "async")]
+    async_runtime::run();
+
+    // 蜂群协同：Leader 选举 + 任务分配演示。
+    swarm_coord_demo::run();
+
     // 综合任务演示（任务文件 → 执行+进度 → 蜂群 → MAVLink）。
     comprehensive_demo::run();
 
-    println!("\nSmart-Brain prototype finished. Next: wire real serial/CAN + ONNX model.");
+    println!(
+        "\nSmart-Brain prototype finished. Real backends available: serial / CAN (Linux) / ONNX + NMS."
+    );
 }

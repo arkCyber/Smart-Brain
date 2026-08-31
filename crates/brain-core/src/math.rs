@@ -48,10 +48,28 @@ impl Vec3 {
             self * (1.0 / n)
         }
     }
+    /// 向量相加的便捷方法（等价于 `+`，供链式调用）。
+    #[allow(clippy::should_implement_trait)] // 操作符已由 `std::ops::Add` 提供
     pub fn add(self, o: Self) -> Self {
+        self + o
+    }
+    /// 向量相减的便捷方法（等价于 `-`，供链式调用）。
+    #[allow(clippy::should_implement_trait)] // 操作符已由 `std::ops::Sub` 提供
+    pub fn sub(self, o: Self) -> Self {
+        self - o
+    }
+}
+
+impl std::ops::Add for Vec3 {
+    type Output = Vec3;
+    fn add(self, o: Self) -> Vec3 {
         Self::new(self.x + o.x, self.y + o.y, self.z + o.z)
     }
-    pub fn sub(self, o: Self) -> Self {
+}
+
+impl std::ops::Sub for Vec3 {
+    type Output = Vec3;
+    fn sub(self, o: Self) -> Vec3 {
         Self::new(self.x - o.x, self.y - o.y, self.z - o.z)
     }
 }
@@ -115,17 +133,6 @@ impl Quat {
         (qz * qy * qx).normalized()
     }
 
-    /// 复合旋转：`self * o` 先应用 o 再应用 self。
-    pub fn mul(self, o: Self) -> Self {
-        Self {
-            w: self.w * o.w - self.x * o.x - self.y * o.y - self.z * o.z,
-            x: self.w * o.x + self.x * o.w + self.y * o.z - self.z * o.y,
-            y: self.w * o.y - self.x * o.z + self.y * o.w + self.z * o.x,
-            z: self.w * o.z + self.x * o.y - self.y * o.x + self.z * o.w,
-        }
-        .normalized()
-    }
-
     /// 单位四元数的逆（= 共轭）。
     pub fn inverse(self) -> Self {
         Self {
@@ -142,12 +149,25 @@ impl Quat {
         let t = qv.cross(v) * 2.0;
         v.add(t * self.w).add(qv.cross(t))
     }
+
+    /// 复合旋转的便捷方法：`self.mul(o)` 先应用 `o` 再应用 `self`（等价于 `*`）。
+    #[allow(clippy::should_implement_trait)] // 操作符已由 `std::ops::Mul` 提供
+    pub fn mul(self, o: Self) -> Self {
+        self * o
+    }
 }
 
 impl std::ops::Mul<Quat> for Quat {
     type Output = Quat;
+    /// 复合旋转：`self * o` 先应用 o 再应用 self。
     fn mul(self, o: Quat) -> Quat {
-        self.mul(o)
+        Self {
+            w: self.w * o.w - self.x * o.x - self.y * o.y - self.z * o.z,
+            x: self.w * o.x + self.x * o.w + self.y * o.z - self.z * o.y,
+            y: self.w * o.y - self.x * o.z + self.y * o.w + self.z * o.x,
+            z: self.w * o.z + self.x * o.y - self.y * o.x + self.z * o.w,
+        }
+        .normalized()
     }
 }
 

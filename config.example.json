@@ -8,5 +8,16 @@
     "serial_port": "/dev/ttyS0",
     "baud_rate": 921600,
     "udp_target": "127.0.0.1:14550"
+  },
+  "safety": {
+    "geofence_radius_m": 500,
+    "geofence_max_altitude_m": 200,
+    "battery_rth_pct": 30,
+    "battery_critical_pct": 15,
+    "battery_low_pct": 40,
+    "prearm_min_gps_satellites": 10,
+    "prearm_require_fix3d": true,
+    "prearm_min_battery_pct": 25,
+    "prearm_require_home": true
   }
 }

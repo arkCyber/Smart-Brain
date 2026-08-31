@@ -26,3 +26,14 @@ brain-autopilot.workspace = true
 brain-agent.workspace = true
 log.workspace = true
 env_logger.workspace = true
+serde_json.workspace = true
+
+# 可选：tokio 异步运行时（感知/决策作为 async 任务并发）。默认关闭保持构建轻量。
+[features]
+default = []
+async = ["dep:tokio"]
+
+[dependencies.tokio]
+version = "1"
+optional = true
+features = ["rt-multi-thread", "time", "sync", "macros"]

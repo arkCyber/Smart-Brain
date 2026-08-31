@@ -3,6 +3,7 @@
 //! 对应参考中“zenoh-pico 桥接底层单片机”的思路：
 //! - 大脑一侧用 `ZenohFcuTransport`（发布 `fcu/command`、订阅 `fcu/telemetry`）。
 //! - 小脑一侧用 `MockFcuZenoh` 模拟跑 zenoh-pico 的 STM32（订阅命令、上报遥测）。
+//!
 //! 二者共享同一个 `CommBackend` 键空间；真机上换成真实 zenoh 即可蜂群互通。
 
 use std::sync::Arc;

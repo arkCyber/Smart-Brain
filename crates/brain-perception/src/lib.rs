@@ -6,7 +6,9 @@
 //! 量化模型）。`VisionPipeline` 组织“取帧 -> 推理 -> 生成检测/跟踪”的流水线。
 
 pub mod backend;
+pub mod nms;
 pub mod pipeline;
 
 pub use backend::{MockModelBackend, ModelBackend, OnnxModelBackend};
+pub use nms::{decode_yolov8, detect_and_nms, nms, DetectionBox};
 pub use pipeline::{VisionConfig, VisionPipeline};

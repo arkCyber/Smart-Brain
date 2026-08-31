@@ -160,11 +160,10 @@ impl DwaPlanner {
                     continue;
                 }
                 let c = Index3::new(bx + dx, by + dy, bz);
-                match grid.state(c) {
-                    Some(CellState::Occupied) => return true,
-                    // 越界视为“地图外”，不作为障碍（避免网格边缘被堵死）。
-                    _ => {}
+                if let Some(CellState::Occupied) = grid.state(c) {
+                    return true;
                 }
+                // 越界视为“地图外”，不作为障碍（避免网格边缘被堵死）。
             }
         }
         false

@@ -95,7 +95,7 @@ pub fn run() {
         }
         ex.update_position(pos); // 上报位置，累计里程
                                  // 周期打印进度。
-        if ex.progress().waypoints_completed() % 2 == 0
+        if ex.progress().waypoints_completed().is_multiple_of(2)
             && ex.phase() == brain_mission::MissionPhase::InProgress
         {
             println!(

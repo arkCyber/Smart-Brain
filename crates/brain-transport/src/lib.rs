@@ -4,12 +4,14 @@
 //! 默认提供 `MockTransport` 用于 SITL 仿真与单元测试；真机联调时启用
 //! `serial` feature 使用真实串口（对应 Jetson/RK3588 上的 UART）。
 
+pub mod can;
 pub mod mavlink;
 pub mod mock;
 pub mod serial_backend;
 pub mod udp;
 pub mod zenoh_fcu;
 
+pub use can::{decode_telemetry, encode_command, encode_telemetry, CanFrame, CanTransport};
 pub use mavlink::{decode_stream, MavLinkTransport, MavMessage};
 pub use mock::MockTransport;
 pub use serial_backend::{SerialConfig, SerialTransport};
@@ -46,6 +48,7 @@ pub fn open_transport(kind: &str) -> Result<Box<dyn FcuTransport>> {
             };
             Ok(Box::new(SerialTransport::open(cfg)?))
         }
+        "can" => Ok(Box::new(CanTransport::open("can0")?)),
         other => Err(brain_core::BrainError::Transport(format!(
             "unknown transport kind: {other}"
         ))),

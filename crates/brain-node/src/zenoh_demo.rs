@@ -4,6 +4,7 @@
 //!   1. Pub/Sub：遥测 / 检测结果的高并发低延迟分发
 //!   2. Store/Query：把地图/配置存入“存储”，随时 `get` 全网透明查询
 //!   3. Compute：在查询路径上注册“服务”（如碰撞检查 / 路径规划），`get` 触发计算
+//!
 //! 通过统一的 `CommBackend` trait，切换到真实 `zenoh` crate 只需换实现。
 
 use std::sync::Arc;

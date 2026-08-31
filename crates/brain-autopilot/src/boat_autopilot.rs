@@ -496,9 +496,11 @@ mod tests {
     fn boat_reaches_goal_in_open_water() {
         // 无水流直航：艇应沿 +X 到达目标。
         let w = World::new(60, 30);
-        let mut cfg = BoatConfig::default();
-        cfg.current = (0.0, 0.0);
-        cfg.station_keep = false;
+        let cfg = BoatConfig {
+            current: (0.0, 0.0),
+            station_keep: false,
+            ..BoatConfig::default()
+        };
         let mut boat = BoatAutopilot::new(cfg, w.width(), w.height(), (3.0, 15.0, 0.0));
         boat.set_goal(Vec3::new(50.0, 15.0, 0.0));
         let mut done = false;
@@ -517,9 +519,11 @@ mod tests {
     fn boat_counteracts_current_when_holding() {
         // 有水流且开启定泊：艇抵达目标后应逆流顶住，保持在目标附近。
         let w = World::new(80, 40);
-        let mut cfg = BoatConfig::default();
-        cfg.current = (0.5, 0.0); // 正 x 方向水流（会把艇向东冲）
-        cfg.station_keep = true;
+        let cfg = BoatConfig {
+            current: (0.5, 0.0), // 正 x 方向水流（会把艇向东冲）
+            station_keep: true,
+            ..BoatConfig::default()
+        };
         let mut boat = BoatAutopilot::new(cfg, w.width(), w.height(), (5.0, 20.0, 0.0));
         boat.set_goal(Vec3::new(40.0, 20.0, 0.0));
         // 航到目标附近。
@@ -565,9 +569,11 @@ mod tests {
         // 水中障碍：艇应绕行且不落入障碍。
         let mut w = World::new(60, 40);
         w.wall(28..30, 10..30); // 一道水中障碍
-        let mut cfg = BoatConfig::default();
-        cfg.current = (0.0, 0.0);
-        cfg.station_keep = false;
+        let cfg = BoatConfig {
+            current: (0.0, 0.0),
+            station_keep: false,
+            ..BoatConfig::default()
+        };
         let mut boat = BoatAutopilot::new(cfg, w.width(), w.height(), (5.0, 20.0, 0.0));
         boat.set_goal(Vec3::new(55.0, 20.0, 0.0));
         let stats = boat.run(&w, 1200);
@@ -579,9 +585,11 @@ mod tests {
     fn boat_cruises_multi_waypoint_track() {
         // 多点巡航：依次到达一串航点。
         let w = World::new(80, 30);
-        let mut cfg = BoatConfig::default();
-        cfg.current = (0.0, 0.0);
-        cfg.station_keep = false;
+        let cfg = BoatConfig {
+            current: (0.0, 0.0),
+            station_keep: false,
+            ..BoatConfig::default()
+        };
         let mut boat = BoatAutopilot::new(cfg, w.width(), w.height(), (3.0, 15.0, 0.0));
         boat.set_track(vec![
             Vec3::new(20.0, 15.0, 0.0),
@@ -612,11 +620,13 @@ mod tests {
     #[test]
     fn boat_tide_current_varies_over_time() {
         // 潮汐：同一时刻的水流随周期正弦变化。
-        let mut cfg = BoatConfig::default();
-        cfg.tide = Tide {
-            amplitude: 2.0,
-            period_s: 10.0,
-            direction: 0.0, // +x 方向潮汐
+        let cfg = BoatConfig {
+            tide: Tide {
+                amplitude: 2.0,
+                period_s: 10.0,
+                direction: 0.0, // +x 方向潮汐
+            },
+            ..BoatConfig::default()
         };
         let w = World::new(20, 20);
         let mut boat = BoatAutopilot::new(cfg, w.width(), w.height(), (2.0, 10.0, 0.0));

@@ -6,6 +6,8 @@
 
 pub mod mission;
 pub mod swarm;
+pub mod swarm_coord;
 
 pub use mission::{Mission, MissionExecutor, MissionPhase, MissionProgress, Waypoint};
 pub use swarm::{SwarmLink, SwarmRole, SwarmShare};
+pub use swarm_coord::{LeaderElection, SwarmCoordinator, SwarmTask, TaskAllocator};

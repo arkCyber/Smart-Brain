@@ -29,6 +29,9 @@ fn mat_transpose(a: M3) -> M3 {
 }
 
 /// 对称矩阵的 Jacobi 特征分解。返回 (特征值降序, 特征向量为列)。
+///
+/// `p/q/k` 需索引二维矩阵的行列与三角范围，属数值算法固有写法。
+#[allow(clippy::needless_range_loop)]
 fn jacobi_eigen(m: M3) -> ([f64; 3], M3) {
     let mut a = m;
     let mut v: M3 = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
@@ -77,8 +80,8 @@ fn jacobi_eigen(m: M3) -> ([f64; 3], M3) {
     }
     let mut idx = [0usize; 3];
     let mut eig = [a[0][0], a[1][1], a[2][2]];
-    for i in 0..3 {
-        idx[i] = i;
+    for (i, slot) in idx.iter_mut().enumerate() {
+        *slot = i;
     }
     for i in 0..3 {
         for j in i + 1..3 {

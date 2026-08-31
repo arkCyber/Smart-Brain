@@ -160,18 +160,18 @@ impl OccupancyGrid3D {
 
     /// 世界坐标处是否被占据。
     pub fn is_occupied(&self, p: Vec3) -> bool {
-        match self.world_to_index(p).and_then(|i| self.state(i)) {
-            Some(CellState::Occupied) => true,
-            _ => false,
-        }
+        matches!(
+            self.world_to_index(p).and_then(|i| self.state(i)),
+            Some(CellState::Occupied)
+        )
     }
 
     /// 世界坐标处是否可通行（空闲）。
     pub fn is_free(&self, p: Vec3) -> bool {
-        match self.world_to_index(p).and_then(|i| self.state(i)) {
-            Some(CellState::Free) => true,
-            _ => false,
-        }
+        matches!(
+            self.world_to_index(p).and_then(|i| self.state(i)),
+            Some(CellState::Free)
+        )
     }
 
     /// 统计三种状态的数量。

@@ -66,10 +66,12 @@ pub struct AutopilotConfig {
 
 impl Default for AutopilotConfig {
     fn default() -> Self {
-        let mut dwa = DwaConfig::default();
-        dwa.v_max = 1.0;
-        dwa.horizon = 0.8;
-        dwa.radius = 0.3;
+        let dwa = DwaConfig {
+            v_max: 1.0,
+            horizon: 0.8,
+            radius: 0.3,
+            ..DwaConfig::default()
+        };
         Self {
             grid_res: 1.0,
             sensor_rays: 32,
@@ -330,6 +332,7 @@ impl Autopilot {
     }
 
     /// 判断命令轨迹是否与真值障碍相交。
+    #[allow(clippy::too_many_arguments)] // 状态量 (x,y,th,v,w,dt)，语义清晰
     fn path_clear(&self, world: &World, x: f32, y: f32, th: f32, v: f32, w: f32, dt: f32) -> bool {
         let steps = 4;
         let mut cx = x;
@@ -479,8 +482,10 @@ mod tests {
     #[test]
     fn explores_with_rrt_guidance() {
         let w = open_world();
-        let mut cfg = AutopilotConfig::default();
-        cfg.use_rrt = true; // 用 RRT 做全局引导
+        let cfg = AutopilotConfig {
+            use_rrt: true, // 用 RRT 做全局引导
+            ..AutopilotConfig::default()
+        };
         let mut ap = Autopilot::new(cfg, w.width(), w.height(), (1.0, 1.0, 0.0));
         let stats = ap.run(&w, 600);
         assert!(stats.safe, "unsafe end pose {:?}", stats.end_pose);

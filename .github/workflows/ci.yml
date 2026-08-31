@@ -43,3 +43,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build real-zenoh
         run: cargo build -p brain-zenoh --features real-zenoh
+
+  feature-backends:
+    name: onnx / can / serial feature build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # ort 用 load-dynamic：编译期不下载 onnxruntime，仅验证代码可编译。
+      - name: Build perception (onnx)
+        run: cargo clippy -p brain-perception --features onnx --all-targets -- -D warnings
+      # SocketCAN 仅支持 Linux，故只在 ubuntu 上验证。
+      - name: Build transport (can)
+        run: cargo clippy -p brain-transport --features can --all-targets -- -D warnings
+      - name: Build transport (serial)
+        run: cargo build -p brain-transport --features serial
+
+  async-runtime:
+    name: tokio async feature build / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Build & test brain-node (async)
+        run: cargo test -p brain-node --features async --all-targets
+      - name: Clippy brain-node (async)
+        run: cargo clippy -p brain-node --features async --all-targets -- -D warnings

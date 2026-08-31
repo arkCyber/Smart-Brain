@@ -40,22 +40,12 @@ impl From<LocalZenohError> for brain_core::BrainError {
 }
 
 /// 存储中的一个条目：保留最近值 + 订阅者 + 可查询的计算。
+#[derive(Default)]
 struct Entry {
     value: Option<Value>,
     timestamp: Timestamp,
     subscribers: Vec<Sender<Sample>>,
     queryables: Vec<(u64, QueryHandler)>,
-}
-
-impl Default for Entry {
-    fn default() -> Self {
-        Self {
-            value: None,
-            timestamp: 0,
-            subscribers: Vec::new(),
-            queryables: Vec::new(),
-        }
-    }
 }
 
 #[derive(Default)]

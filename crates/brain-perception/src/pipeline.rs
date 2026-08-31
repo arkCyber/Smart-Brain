@@ -1,6 +1,6 @@
 //! 感知流水线：组织“取帧 -> 推理 -> 检测/跟踪”并发布到数据总线。
 
-use brain_core::time::{instant_now, Timestamp};
+use brain_core::time::Timestamp;
 use brain_message::{Detection, TrackingStatus};
 use brain_middleware::bus::topics;
 use brain_middleware::DataBus;
@@ -50,6 +50,13 @@ impl VisionPipeline {
             lock_acquired_at: 0,
             last_seen: 0,
         }
+    }
+
+    /// 使用真实 ONNX 后端创建流水线（`onnx` feature 时 `load_model` 才真正加载模型；
+    /// 未启用时 `load_model` 会返回明确错误）。`num_classes` 为 YOLOv8 的类别数。
+    pub fn onnx(config: VisionConfig, num_classes: usize) -> Self {
+        let backend = crate::backend::OnnxModelBackend::new().with_num_classes(num_classes);
+        Self::new(Box::new(backend), config)
     }
 
     /// 加载模型。
@@ -142,8 +149,82 @@ pub fn default_pipeline() -> VisionPipeline {
     )
 }
 
-#[allow(dead_code)]
-fn _usage(now: Timestamp) {
-    let _ = instant_now();
-    let _ = now;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::MockModelBackend;
+    use brain_middleware::bus::topics;
+
+    /// 快速推理 + 快速失锁判定的配置，便于测试。
+    fn fast_config() -> VisionConfig {
+        VisionConfig {
+            infer_period_ms: 1000,
+            input_size: 32,
+            lock_lost_ms: 30,
+        }
+    }
+
+    #[test]
+    fn loads_model_and_acquires_lock_on_first_tick() {
+        let mut p = VisionPipeline::new(Box::new(MockModelBackend::new()), fast_config());
+        p.load_model("mock.onnx").unwrap();
+        let bus = DataBus::new();
+        p.tick(&bus, 1000); // now>=infer_period -> 推理并锁定
+        assert!(matches!(p.tracking(), TrackingStatus::Locked { .. }));
+    }
+
+    #[test]
+    fn publishes_detection_and_tracking_to_bus() {
+        let mut p = VisionPipeline::new(Box::new(MockModelBackend::new()), fast_config());
+        p.load_model("mock.onnx").unwrap();
+        let bus = DataBus::new();
+        p.tick(&bus, 1000);
+        p.publish_tracking(&bus, 1000);
+
+        let det = bus.topic::<Detection>(topics::DETECTIONS).unwrap();
+        let det = det.peek().expect("detection should be published");
+        assert!(det.confidence > 0.9);
+
+        let track = bus.topic::<TrackingStatus>(topics::TRACKING).unwrap();
+        assert!(matches!(track.peek(), Some(TrackingStatus::Locked { .. })));
+    }
+
+    #[test]
+    fn loses_lock_when_inference_stops() {
+        let mut p = VisionPipeline::new(Box::new(MockModelBackend::new()), fast_config());
+        p.load_model("mock.onnx").unwrap();
+        let bus = DataBus::new();
+        p.tick(&bus, 1000); // 锁定
+        assert!(matches!(p.tracking(), TrackingStatus::Locked { .. }));
+        // 50ms 后无新推理（50<infer_period），且超过失锁阈值（50>lock_lost_ms）
+        p.tick(&bus, 1050);
+        assert!(matches!(p.tracking(), TrackingStatus::Lost { .. }));
+    }
+
+    #[test]
+    fn unloaded_model_reports_no_target() {
+        let mut p = VisionPipeline::new(Box::new(MockModelBackend::new()), fast_config());
+        let bus = DataBus::new();
+        // 未 load_model -> 推理失败 -> 无目标
+        p.tick(&bus, 1000);
+        assert!(matches!(p.tracking(), TrackingStatus::NoTarget));
+    }
+
+    #[test]
+    fn tracking_returns_no_target_before_any_tick() {
+        let p = VisionPipeline::new(Box::new(MockModelBackend::new()), fast_config());
+        assert!(matches!(p.tracking(), TrackingStatus::NoTarget));
+    }
+
+    #[test]
+    fn onnx_factory_builds_backend_and_reports_no_target() {
+        // onnx() 工厂始终可构造；未加载模型时推理应失败并保持 NoTarget。
+        let mut p = VisionPipeline::onnx(fast_config(), 80);
+        let bus = DataBus::new();
+        p.tick(&bus, 1000);
+        assert!(matches!(p.tracking(), TrackingStatus::NoTarget));
+        // 未启用 onnx feature 时 load_model 应给出明确错误。
+        let err = p.load_model("models/yolov8n.onnx").unwrap_err();
+        let _ = err;
+    }
 }

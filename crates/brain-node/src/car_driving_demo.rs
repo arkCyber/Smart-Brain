@@ -24,10 +24,12 @@ pub fn run() {
     world.set_obstacle(40, 17);
     world.set_obstacle(41, 17);
 
-    let mut cfg = CarAutopilotConfig::default();
-    cfg.use_rrt = true; // 用 RRT 连续空间全局引导绕障
-    cfg.use_dubins = true; // 用 Dubins 曲线把全局路径平滑成受最小转弯半径约束的圆弧轨迹
-                           // 起点在车道 y=20，车头朝 +X；目标在 x=55 的同一车道。
+    let cfg = CarAutopilotConfig {
+        use_rrt: true,    // 用 RRT 连续空间全局引导绕障
+        use_dubins: true, // 用 Dubins 曲线把全局路径平滑成受最小转弯半径约束的圆弧轨迹
+        ..CarAutopilotConfig::default()
+    };
+    // 起点在车道 y=20，车头朝 +X；目标在 x=55 的同一车道。
     let start = (3.0f32, 20.0f32, 0.0f32);
     let mut autopilot = CarAutopilot::new(cfg, world.width(), world.height(), start);
     autopilot.set_goal(Vec3::new(55.0, 20.0, 0.0));
@@ -124,8 +126,10 @@ fn demonstrate_reverse_parking_closed_loop() {
 
     println!("  --- 闭环倒车跟随（最终接近切 Reeds-Shepp） ---");
     let world = World::new(60, 40);
-    let mut cfg = CarAutopilotConfig::default();
-    cfg.use_reeds_shepp = true;
+    let cfg = CarAutopilotConfig {
+        use_reeds_shepp: true,
+        ..CarAutopilotConfig::default()
+    };
     let mut autopilot = CarAutopilot::new(cfg, world.width(), world.height(), (6.0, 20.0, 0.0));
     let goal = (10.0f32, 24.0f32, -std::f32::consts::FRAC_PI_2);
     autopilot.set_goal_pose(goal);

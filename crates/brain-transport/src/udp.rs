@@ -82,14 +82,14 @@ mod tests {
     fn udp_frame_roundtrip() {
         let recv = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:0").unwrap();
         let recv_addr = recv.socket.local_addr().unwrap();
-        let mut send = UdpTransport::connect("127.0.0.1:0", &recv_addr.to_string()).unwrap();
+        let send = UdpTransport::connect("127.0.0.1:0", &recv_addr.to_string()).unwrap();
         let mut recv = recv;
 
         // 发送一帧遥测（用帧编解码验证接收端可靠分帧）。
         let telem = Telemetry::default_at(42);
         let payload = serde_json::to_vec(&telem).unwrap();
         send.socket
-            .send_to(&encode_frame(&payload), &recv_addr)
+            .send_to(&encode_frame(&payload), recv_addr)
             .unwrap();
 
         std::thread::sleep(Duration::from_millis(20));

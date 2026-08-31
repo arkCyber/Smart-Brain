@@ -96,14 +96,46 @@ impl ModelBackend for MockModelBackend {
 }
 
 /// 真实 ONNX Runtime 后端（可选，`onnx` feature）。
+///
+/// 使用 `ort`（ONNX Runtime 的 Rust 绑定）加载 `.onnx` 模型并执行一次前向推理，
+/// 输出按 YOLOv8 风格做“解码 + NMS”后处理，结果为 `[N, 6]` 矩阵
+/// （`[class_id, confidence, cx, cy, w, h]`），可直接被 `VisionPipeline` 消费。
+///
+/// 依赖以 `load-dynamic` 方式接入：编译期无需下载 onnxruntime 二进制，
+/// 运行时经 libloading 加载系统安装的 onnxruntime 共享库。
 pub struct OnnxModelBackend {
-    #[allow(dead_code)]
-    session: Option<()>,
+    /// 检测类别数（YOLOv8 的 `nc`，用于输出张量 `[1, 4+nc, anchors]` 解码）。
+    num_classes: usize,
+    /// 置信度阈值。
+    conf_threshold: f32,
+    /// NMS IoU 阈值。
+    iou_threshold: f32,
+    #[cfg(feature = "onnx")]
+    session: Option<ort::session::Session>,
 }
 
 impl OnnxModelBackend {
     pub fn new() -> Self {
-        Self { session: None }
+        Self {
+            num_classes: 80,
+            conf_threshold: 0.25,
+            iou_threshold: 0.45,
+            #[cfg(feature = "onnx")]
+            session: None,
+        }
+    }
+
+    /// 设置检测类别数。
+    pub fn with_num_classes(mut self, n: usize) -> Self {
+        self.num_classes = n;
+        self
+    }
+
+    /// 设置置信度与 NMS IoU 阈值。
+    pub fn with_thresholds(mut self, conf: f32, iou: f32) -> Self {
+        self.conf_threshold = conf;
+        self.iou_threshold = iou;
+        self
     }
 }
 
@@ -117,10 +149,12 @@ impl ModelBackend for OnnxModelBackend {
     fn load(&mut self, path: &str) -> Result<()> {
         #[cfg(feature = "onnx")]
         {
-            // 真实部署示例：使用 ort crate 创建 ONNX 会话。
-            //   ort::Session::builder()?.commit_from_file(path) ...
-            log::info!("onnx session would be created from {path}");
-            self.session = Some(());
+            let session = ort::session::Session::builder()
+                .map_err(|e| BrainError::Inference(format!("session builder: {e}")))?
+                .commit_from_file(path)
+                .map_err(|e| BrainError::Inference(format!("load {path}: {e}")))?;
+            self.session = Some(session);
+            log::info!("onnx session loaded from {path}");
             Ok(())
         }
         #[cfg(not(feature = "onnx"))]
@@ -133,14 +167,67 @@ impl ModelBackend for OnnxModelBackend {
     }
 
     fn infer(&mut self, input: &InferenceInput) -> Result<InferenceOutput> {
-        let _ = input;
         #[cfg(feature = "onnx")]
         {
-            // 真实部署：运行会话并后处理 NMS。
-            Err(BrainError::Inference("onnx run not wired in demo".into()))
+            // 1. 构造 NCHW 输入张量（batch, channel, height, width）。
+            let shape = input.shape.as_slice();
+            if shape.len() != 4 {
+                return Err(BrainError::Inference(format!(
+                    "expected NCHW input shape, got {shape:?}"
+                )));
+            }
+            let dims = ndarray::IxDyn(shape);
+            let arr = ndarray::Array::from_shape_vec(dims, input.data.clone())
+                .map_err(|e| BrainError::Inference(format!("build input tensor: {e}")))?;
+            let tensor = ort::value::Tensor::from_array(arr)
+                .map_err(|e| BrainError::Inference(format!("tensor: {e}")))?;
+
+            // 2. 运行推理（可变借用会话；随后在块末释放借用，避免与读取配置冲突）。
+            let data = {
+                let session = self
+                    .session
+                    .as_mut()
+                    .ok_or_else(|| BrainError::Inference("onnx model not loaded".into()))?;
+                let inputs = ort::inputs![tensor];
+                let outputs = session
+                    .run(inputs)
+                    .map_err(|e| BrainError::Inference(format!("run: {e}")))?;
+                let out = &outputs[0];
+                let view = out
+                    .try_extract_tensor::<f32>()
+                    .map_err(|e| BrainError::Inference(format!("extract output: {e}")))?;
+                // view = (&Shape, &[f32])，取数据切片复制为所有权的 Vec。
+                view.1.to_vec()
+            };
+
+            // 3. YOLOv8 解码 + NMS，输出 [N,6]。
+            let dets = crate::nms::detect_and_nms(
+                &data,
+                self.num_classes,
+                self.conf_threshold,
+                self.iou_threshold,
+            )?;
+            let cols = 6;
+            let mut out_data = Vec::with_capacity(dets.len() * cols);
+            for d in &dets {
+                out_data.extend_from_slice(&[
+                    d.class as f32,
+                    d.score,
+                    (d.x1 + d.x2) / 2.0,
+                    (d.y1 + d.y2) / 2.0,
+                    d.x2 - d.x1,
+                    d.y2 - d.y1,
+                ]);
+            }
+            Ok(InferenceOutput {
+                data: out_data,
+                rows: dets.len(),
+                cols,
+            })
         }
         #[cfg(not(feature = "onnx"))]
         {
+            let _ = input;
             Err(BrainError::Inference(
                 "onnx feature not enabled; build with --features onnx".into(),
             ))
