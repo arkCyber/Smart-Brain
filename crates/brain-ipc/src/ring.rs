@@ -70,6 +70,11 @@ impl<T> FixedRingBuffer<T> {
         self.buf[idx].as_ref()
     }
 
+    /// 从最旧到最新依次迭代元素。
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        (0..self.len).filter_map(move |i| self.get(i))
+    }
+
     /// 元素个数。
     pub fn len(&self) -> usize {
         self.len
@@ -127,6 +132,33 @@ impl<T> SharedRing<T> {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    pub fn capacity(&self) -> usize {
+        self.inner.lock().map(|g| g.capacity()).unwrap_or(0)
+    }
+
+    pub fn is_full(&self) -> bool {
+        self.inner.lock().map(|g| g.is_full()).unwrap_or(false)
+    }
+
+    /// 读取第 `i` 个最旧的元素（需要 `T: Clone`）。
+    pub fn get(&self, i: usize) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.inner.lock().ok().and_then(|g| g.get(i).cloned())
+    }
+
+    /// 从最旧到最新依次迭代元素。
+    pub fn iter(&self) -> Vec<T>
+    where
+        T: Clone,
+    {
+        self.inner
+            .lock()
+            .map(|g| g.iter().cloned().collect())
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -165,5 +197,43 @@ mod tests {
             FixedRingBuffer::<u8>::new(0),
             Err(RingError::InvalidCapacity)
         ));
+    }
+
+    #[test]
+    fn iter_yields_oldest_to_newest() {
+        let mut r = FixedRingBuffer::new(3).unwrap();
+        r.push(10);
+        r.push(20);
+        r.push(30);
+        // 覆盖最旧的 10。
+        r.push(40);
+        let got: Vec<i32> = r.iter().copied().collect();
+        assert_eq!(got, vec![20, 30, 40]);
+    }
+
+    #[test]
+    fn shared_ring_exposes_read_api() {
+        let ring = SharedRing::new(3).unwrap();
+        assert!(ring.is_empty());
+        assert_eq!(ring.capacity(), 3);
+        ring.push("a".to_string());
+        ring.push("b".to_string());
+        assert_eq!(ring.len(), 2);
+        assert_eq!(ring.get(0), Some("a".to_string()));
+        assert_eq!(ring.get(1), Some("b".to_string()));
+        assert_eq!(ring.iter(), vec!["a".to_string(), "b".to_string()]);
+        assert_eq!(ring.pop_oldest(), Some("a".to_string()));
+    }
+
+    #[test]
+    fn shared_ring_full_and_evict() {
+        let ring = SharedRing::new(2).unwrap();
+        ring.push(1);
+        ring.push(2);
+        assert!(ring.is_full());
+        // 覆盖最旧的 1。
+        let evicted = ring.push(3);
+        assert_eq!(evicted, Some(1));
+        assert_eq!(ring.iter(), vec![2, 3]);
     }
 }

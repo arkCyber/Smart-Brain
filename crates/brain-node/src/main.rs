@@ -274,6 +274,8 @@ fn demonstrate_failsafe(timeout_ms: u64) {
 
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // 用单调 Stopwatch 测量整套演示的总耗时（真正单调，不受系统时间调整影响）。
+    let wall = brain_core::time::Stopwatch::start();
 
     // 加载配置：优先环境变量 SMART_BRAIN_CONFIG 指向的路径，其次 config.json，
     // 最后回退到仓库自带的 config.example.json；全部缺失时使用内置默认值。
@@ -336,6 +338,7 @@ fn main() {
     comprehensive_demo::run();
 
     println!(
-        "\nSmart-Brain prototype finished. Real backends available: serial / CAN (Linux) / ONNX + NMS."
+        "\nSmart-Brain prototype finished in {:.2}s. Real backends available: serial / CAN (Linux) / ONNX + NMS.",
+        wall.elapsed_secs()
     );
 }

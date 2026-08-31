@@ -54,6 +54,16 @@ All notable changes to this project are documented in this file.
   transport backend (falling back to mock).
 - **Robustness**: fixed a latent panic in `brain-nav::Backtracker::record` when
   `max == 0`; removed dead-code stubs in `safety`/`pipeline`.
+- **Foundation modules**:
+  - `brain-core::time`: added injectable `Clock` trait (`SystemClock`/`ManualClock`)
+    and a truly-monotonic `Stopwatch` (wall-clock `instant_now` was not monotonic).
+  - `brain-message::frame`: CRC-16/CCITT known-answer test and a max-payload guard
+    in `FrameReader` so a bogus length prefix cannot stall the buffer (desync).
+  - `brain-ipc::ring`: `FixedRingBuffer::iter()` + `SharedRing` `get`/`capacity`/
+    `is_full`/`iter`.
+  - `brain-state`/`brain-middleware`: extra unit tests (state `flight_mode`/`is_safe`,
+    DataBus multi-topic & shared-topic semantics).
+  - `brain-node` uses `Stopwatch` to report total demo runtime.
 - CI workflow, LICENSE (Apache-2.0), CONTRIBUTING guide.
 
 ### Changed

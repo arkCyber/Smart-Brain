@@ -156,4 +156,40 @@ mod tests {
         bus.register::<u32>("x");
         assert!(bus.topic::<String>("x").is_none());
     }
+
+    #[test]
+    fn register_same_name_returns_same_topic() {
+        let bus = DataBus::new();
+        let a: Arc<Topic<u64>> = bus.register("t");
+        let b: Arc<Topic<u64>> = bus.register("t");
+        assert!(Arc::ptr_eq(&a, &b));
+        a.publish(7, 0);
+        assert_eq!(b.peek(), Some(7));
+    }
+
+    #[test]
+    fn multiple_topics_independent() {
+        let bus = DataBus::new();
+        bus.publish::<u8>(topics::HEARTBEAT, 1, 0).unwrap();
+        bus.publish::<String>(topics::COMMAND, "go".into(), 0)
+            .unwrap();
+        assert_eq!(bus.len(), 2);
+        assert_eq!(bus.topic::<u8>(topics::HEARTBEAT).unwrap().peek(), Some(1));
+        assert_eq!(
+            bus.topic::<String>(topics::COMMAND)
+                .unwrap()
+                .peek()
+                .as_deref(),
+            Some("go")
+        );
+    }
+
+    #[test]
+    fn is_empty_and_len() {
+        let bus = DataBus::new();
+        assert!(bus.is_empty());
+        bus.publish::<u32>(topics::TELEMETRY, 0, 0).unwrap();
+        assert_eq!(bus.len(), 1);
+        assert!(!bus.is_empty());
+    }
 }

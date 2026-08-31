@@ -44,7 +44,7 @@ cd Smart-Brain
 # 构建整个 workspace（默认无系统级依赖，开箱即用）
 cargo build
 
-# 运行全部单元测试（222 项）
+# 运行全部单元测试（236 项）
 cargo test
 
 # 运行完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面

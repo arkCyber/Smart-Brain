@@ -9,5 +9,7 @@ pub mod frame;
 pub mod telemetry;
 
 pub use command::{Command, CommandTarget, Detection, Mode, TrackingStatus, WaypointCommand};
-pub use frame::{crc16, encode_frame, verify_frame, FrameReader, FRAME_OVERHEAD};
+pub use frame::{
+    crc16, encode_frame, verify_frame, FrameReader, FRAME_OVERHEAD, MAX_FRAME_PAYLOAD,
+};
 pub use telemetry::{Attitude, BatteryStatus, GpsFix, Telemetry, Vec3};

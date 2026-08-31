@@ -7,6 +7,10 @@
 /// 帧头与尾固定开销字节数（2 长度 + 2 CRC）。
 pub const FRAME_OVERHEAD: usize = 4;
 
+/// 单帧负载长度上限（16 KiB）。遥测/指令等消息远小于此；用于抵御损坏的
+/// 长度前缀（u16 最大 65535）导致的无界缓冲/失步。
+pub const MAX_FRAME_PAYLOAD: usize = 0x4000;
+
 /// CRC-16/CCITT（多项式 0x1021，初值 0xFFFF）。
 pub fn crc16(data: &[u8]) -> u16 {
     let mut crc: u16 = 0xFFFF;
@@ -78,6 +82,12 @@ impl FrameReader {
                 break;
             }
             let len = u16::from_le_bytes([self.buf[0], self.buf[1]]) as usize;
+            // 防御：损坏/异常的长度前缀（超过上限）视为失步，丢弃该 2 字节长度头
+            // 重新对齐，避免声称巨大长度导致缓冲无界增长/长时间等待。
+            if len > MAX_FRAME_PAYLOAD {
+                self.buf.drain(..2);
+                continue;
+            }
             let total = len + FRAME_OVERHEAD;
             if self.buf.len() < total {
                 break; // 半包，等待更多数据
@@ -109,6 +119,29 @@ mod tests {
         let c = crc16(b"hellp"); // 一位改动
         assert_eq!(a, b);
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn crc16_ccitt_known_answer() {
+        // CRC-16/CCITT-FALSE（初值 0xFFFF，多项式 0x1021）对 "123456789" 的标准值。
+        assert_eq!(crc16(b"123456789"), 0x29B1);
+        assert_eq!(crc16(b""), 0xFFFF);
+    }
+
+    #[test]
+    fn reader_resyncs_on_absurd_length_prefix() {
+        // 伪造一个声称 1MiB 以上的长度前缀（失步），随后应能跳过并继续解析后续真帧。
+        let good = encode_frame(b"ok");
+        let mut corrupt = vec![0xFF, 0xFF]; // 长度前缀 = 65535（> MAX）
+        corrupt.extend_from_slice(&good);
+        let mut reader = FrameReader::new();
+        let frames = reader.push(&corrupt);
+        assert_eq!(
+            frames.len(),
+            1,
+            "should skip garbage and parse the good frame"
+        );
+        assert_eq!(frames[0], b"ok");
     }
 
     #[test]

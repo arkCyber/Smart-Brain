@@ -170,4 +170,26 @@ mod tests {
         assert!(sm.transition(FlightState::Tracking).is_err());
         assert_eq!(sm.current(), FlightState::Ground);
     }
+
+    #[test]
+    fn flight_mode_maps_to_message_mode() {
+        assert_eq!(FlightState::Ground.flight_mode(), Mode::Idle);
+        assert_eq!(FlightState::TakingOff.flight_mode(), Mode::Takeoff);
+        assert_eq!(FlightState::Cruising.flight_mode(), Mode::Cruise);
+        assert_eq!(FlightState::Tracking.flight_mode(), Mode::Track);
+        assert_eq!(FlightState::ReturningHome.flight_mode(), Mode::ReturnHome);
+        assert_eq!(FlightState::Landing.flight_mode(), Mode::Land);
+        assert_eq!(FlightState::Loitering.flight_mode(), Mode::Loiter);
+    }
+
+    #[test]
+    fn safe_states_classified() {
+        assert!(FlightState::Ground.is_safe());
+        assert!(FlightState::Loitering.is_safe());
+        assert!(FlightState::Landing.is_safe());
+        assert!(!FlightState::Cruising.is_safe());
+        assert!(!FlightState::Tracking.is_safe());
+        assert!(!FlightState::TakingOff.is_safe());
+        assert!(!FlightState::ReturningHome.is_safe());
+    }
 }
