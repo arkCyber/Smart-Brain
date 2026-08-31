@@ -1,0 +1,11 @@
+[package]
+name = "brain-middleware"
+description = "Smart-Brain data bus: topic publish/subscribe and module registry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+log.workspace = true

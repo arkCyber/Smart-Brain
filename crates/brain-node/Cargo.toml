@@ -1,0 +1,28 @@
+[package]
+name = "brain-node"
+description = "Smart-Brain main executable: assembles and drives all modules"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+brain-middleware.workspace = true
+brain-transport.workspace = true
+brain-state.workspace = true
+brain-perception.workspace = true
+brain-behavior-tree.workspace = true
+brain-mission.workspace = true
+brain-robot.workspace = true
+brain-kinematics.workspace = true
+brain-ipc.workspace = true
+brain-mapping.workspace = true
+brain-odometry.workspace = true
+brain-planning.workspace = true
+brain-nav.workspace = true
+brain-zenoh.workspace = true
+brain-autopilot.workspace = true
+brain-agent.workspace = true
+log.workspace = true
+env_logger.workspace = true

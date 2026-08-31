@@ -1,0 +1,11 @@
+[package]
+name = "brain-state"
+description = "Smart-Brain flight state machine and fail-safe watchdog"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+log.workspace = true

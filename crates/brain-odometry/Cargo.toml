@@ -1,0 +1,11 @@
+[package]
+name = "brain-odometry"
+description = "Smart-Brain visual-inertial odometry: IMU, RGB-D visual odometry, VIO fusion"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-ipc.workspace = true
+log.workspace = true

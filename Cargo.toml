@@ -1,0 +1,59 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/brain-core",
+    "crates/brain-message",
+    "crates/brain-middleware",
+    "crates/brain-transport",
+    "crates/brain-state",
+    "crates/brain-perception",
+    "crates/brain-behavior-tree",
+    "crates/brain-mission",
+    "crates/brain-robot",
+    "crates/brain-kinematics",
+    "crates/brain-ipc",
+    "crates/brain-mapping",
+    "crates/brain-odometry",
+    "crates/brain-planning",
+    "crates/brain-nav",
+    "crates/brain-zenoh",
+    "crates/brain-autopilot",
+    "crates/brain-agent",
+    "crates/brain-node",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/example/smart-brain"
+
+[workspace.dependencies]
+brain-core = { path = "crates/brain-core" }
+brain-message = { path = "crates/brain-message" }
+brain-middleware = { path = "crates/brain-middleware" }
+brain-transport = { path = "crates/brain-transport" }
+brain-state = { path = "crates/brain-state" }
+brain-perception = { path = "crates/brain-perception" }
+brain-behavior-tree = { path = "crates/brain-behavior-tree" }
+brain-mission = { path = "crates/brain-mission" }
+brain-robot = { path = "crates/brain-robot" }
+brain-kinematics = { path = "crates/brain-kinematics" }
+brain-ipc = { path = "crates/brain-ipc" }
+brain-mapping = { path = "crates/brain-mapping" }
+brain-odometry = { path = "crates/brain-odometry" }
+brain-planning = { path = "crates/brain-planning" }
+brain-nav = { path = "crates/brain-nav" }
+brain-zenoh = { path = "crates/brain-zenoh" }
+brain-autopilot = { path = "crates/brain-autopilot" }
+brain-agent = { path = "crates/brain-agent" }
+
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+log = "0.4"
+env_logger = "0.11"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1

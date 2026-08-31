@@ -1,0 +1,10 @@
+[package]
+name = "brain-mapping"
+description = "Smart-Brain spatial perception: 3D occupancy/voxel grid with ray-casting update"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+log.workspace = true

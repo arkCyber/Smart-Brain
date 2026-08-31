@@ -1,0 +1,25 @@
+[package]
+name = "brain-zenoh"
+description = "Smart-Brain unified communication: Pub/Sub + Store/Query + Compute (Zenoh-style)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+
+[features]
+# 启用真实 zenoh crate 适配（默认关闭以保持构建轻量；真机部署时打开）。
+real-zenoh = ["dep:zenoh", "dep:tokio"]
+
+[dependencies.zenoh]
+version = "1.10"
+optional = true
+
+[dependencies.tokio]
+version = "1"
+features = ["rt", "rt-multi-thread", "macros", "sync", "time"]
+optional = true

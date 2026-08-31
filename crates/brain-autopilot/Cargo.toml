@@ -1,0 +1,14 @@
+[package]
+name = "brain-autopilot"
+description = "Smart-Brain closed-loop autonomous navigation: sense -> map -> plan -> drive -> backtrack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-mapping.workspace = true
+brain-planning.workspace = true
+brain-nav.workspace = true
+brain-kinematics.workspace = true
+log.workspace = true

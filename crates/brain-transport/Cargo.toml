@@ -1,0 +1,21 @@
+[package]
+name = "brain-transport"
+description = "Smart-Brain hardware transport: serial/CAN/UDP link to the FCU"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+brain-zenoh.workspace = true
+log.workspace = true
+serde_json.workspace = true
+
+# 可选：真实串口后端（Jetson / RK3588 上启用）
+[features]
+serial = ["dep:serialport"]
+
+[dependencies.serialport]
+version = "4.6"
+optional = true

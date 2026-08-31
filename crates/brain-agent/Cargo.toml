@@ -1,0 +1,12 @@
+[package]
+name = "brain-agent"
+description = "Smart-Brain agent layer: Rig-style LLM agent with tool-calling and MockLLM"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true

@@ -1,0 +1,11 @@
+[package]
+name = "brain-nav"
+description = "Smart-Brain indoor task layer: frontier exploration and breadcrumb backtracking"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-mapping.workspace = true
+log.workspace = true

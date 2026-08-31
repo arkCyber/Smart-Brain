@@ -1,0 +1,12 @@
+{
+  "node_id": "smart-brain-01",
+  "heartbeat_period_ms": 10,
+  "failsafe_timeout_ms": 50,
+  "tick_period_ms": 20,
+  "fcu": {
+    "transport": "mock",
+    "serial_port": "/dev/ttyS0",
+    "baud_rate": 921600,
+    "udp_target": "127.0.0.1:14550"
+  }
+}

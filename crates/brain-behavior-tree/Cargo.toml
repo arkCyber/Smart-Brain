@@ -1,0 +1,12 @@
+[package]
+name = "brain-behavior-tree"
+description = "Smart-Brain decision layer: behavior tree framework and flight nodes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+brain-middleware.workspace = true
+log.workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "brain-perception"
+description = "Smart-Brain AI perception: inference backend abstraction and vision pipeline"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-message.workspace = true
+brain-middleware.workspace = true
+log.workspace = true
+
+# 可选：真实 ONNX Runtime 推理后端。默认关闭以保持构建轻量；
+# 真机部署时启用 `onnx` 并引入 `ort` crate（见 README）。
+[features]
+onnx = []
+default = []

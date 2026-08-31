@@ -1,0 +1,12 @@
+[package]
+name = "brain-planning"
+description = "Smart-Brain path planning: grid A* and dynamic-window local obstacle avoidance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-mapping.workspace = true
+brain-kinematics.workspace = true
+log.workspace = true
