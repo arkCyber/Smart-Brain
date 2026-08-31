@@ -11,4 +11,7 @@ pub mod time;
 pub use config::BrainConfig;
 pub use error::{BrainError, Result};
 pub use math::{Pose, Quat, Vec3};
-pub use time::{instant_now, Clock, ManualClock, Stopwatch, SystemClock, Timestamp};
+pub use time::{
+    instant_now, Clock, ManualClock, Stopwatch, SyncDriver, SyncExchange, SyncSample, SyncedClock,
+    SystemClock, TimeSync, Timestamp,
+};

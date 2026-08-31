@@ -202,7 +202,10 @@ impl RobotBody for MockRobotBody {
         Ok(())
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 重置仿真身体为初始状态（仿真"断电"）。
+        self.state = BodyState::new(self.kind);
+    }
 }
 
 #[cfg(test)]

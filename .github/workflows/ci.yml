@@ -35,14 +35,22 @@ jobs:
         run: cargo fmt --all -- --check
 
   real-zenoh:
-    name: real-zenoh feature build
+    name: real-zenoh feature build / clippy / test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
+      # 除编译外还要跑 clippy(-D warnings) 与离线单测，防止 feature 分支被
+      # `cargo build` 掩盖的警告/回归（真实 zenoh 适配的 queryable 生命周期等）。
       - name: Build real-zenoh
         run: cargo build -p brain-zenoh --features real-zenoh
+      - name: Clippy real-zenoh (deny warnings)
+        run: cargo clippy -p brain-zenoh --features real-zenoh --all-targets -- -D warnings
+      - name: Test real-zenoh (offline)
+        run: cargo test -p brain-zenoh --features real-zenoh --lib
 
   feature-backends:
     name: onnx / can / serial feature build
@@ -61,6 +69,11 @@ jobs:
         run: cargo clippy -p brain-transport --features can --all-targets -- -D warnings
       - name: Build transport (serial)
         run: cargo build -p brain-transport --features serial
+      # 真实 HTTP LLM 后端：clippy(-D warnings) + 离线单测（本地回环 HTTP 服务器）。
+      - name: Build & test agent (http-llm)
+        run: cargo clippy -p brain-agent --features http-llm --all-targets -- -D warnings
+      - name: Test agent (http-llm)
+        run: cargo test -p brain-agent --features http-llm --lib
 
   async-runtime:
     name: tokio async feature build / test

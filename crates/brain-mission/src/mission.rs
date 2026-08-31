@@ -373,4 +373,109 @@ mod tests {
         assert_eq!(ex.progress().percent_complete(), 100.0);
         assert_eq!(ex.phase(), MissionPhase::Completed);
     }
+
+    #[test]
+    fn validate_rejects_empty_and_bad_waypoints() {
+        let empty = Mission::new("x", vec![]);
+        assert!(empty.validate().is_err());
+        assert!(MissionExecutor::new(empty).is_err());
+
+        let mut bad_alt = sample_mission();
+        bad_alt.waypoints[0].alt = -5.0;
+        assert!(bad_alt.validate().is_err());
+        assert!(MissionExecutor::new(bad_alt).is_err());
+    }
+
+    #[test]
+    fn from_json_rejects_invalid() {
+        // 非法 JSON / 序号乱序 / 缺航点都应报错。
+        assert!(Mission::from_json("not json").is_err());
+        let mut m = sample_mission();
+        m.waypoints[1].sequence = 9;
+        let json = m.to_json().unwrap();
+        assert!(Mission::from_json(&json).is_err());
+        let empty = Mission::new("x", vec![]);
+        assert!(Mission::from_json(&empty.to_json().unwrap()).is_err());
+    }
+
+    #[test]
+    fn save_load_error_paths() {
+        let m = sample_mission();
+        // 保存到非法路径 -> 错误。
+        assert!(m.save("/nonexistent_dir_xyz/file.json").is_err());
+        // 加载不存在的文件 -> 错误。
+        assert!(Mission::load("/nonexistent_dir_xyz/file.json").is_err());
+    }
+
+    #[test]
+    fn single_waypoint_has_zero_total_distance() {
+        let m = Mission::new(
+            "single",
+            vec![Waypoint {
+                sequence: 0,
+                north: 1.0,
+                east: 2.0,
+                alt: 10.0,
+                accept_radius: 2.0,
+            }],
+        );
+        assert!(m.total_distance() < 1e-6);
+    }
+
+    #[test]
+    fn progress_distance_metrics() {
+        let mut ex = MissionExecutor::new(sample_mission()).unwrap();
+        ex.start();
+        let p = ex.progress();
+        assert_eq!(p.total_waypoints(), 3);
+        assert!((p.distance_total() - 200.0).abs() < 0.01);
+        assert_eq!(p.distance_remaining(), p.distance_total());
+        assert_eq!(p.distance_percent(), 0.0);
+        ex.update_position(Vec3::new(0.0, 0.0, 0.0));
+        ex.update_position(Vec3::new(100.0, 0.0, 0.0));
+        let p2 = ex.progress();
+        assert!(p2.distance_traveled() > 0.0);
+        // 已飞一段，剩余减少、距离百分比上升。
+        assert!(p2.distance_remaining() < p2.distance_total());
+        assert!(p2.distance_percent() > 0.0 && p2.distance_percent() <= 100.0);
+    }
+
+    #[test]
+    fn distance_percent_zero_when_no_total() {
+        let mut ex = MissionExecutor::new(Mission::new(
+            "s",
+            vec![Waypoint {
+                sequence: 0,
+                north: 0.0,
+                east: 0.0,
+                alt: 5.0,
+                accept_radius: 2.0,
+            }],
+        ))
+        .unwrap();
+        ex.start();
+        assert_eq!(ex.progress().distance_percent(), 0.0);
+    }
+
+    #[test]
+    fn executor_index_mission_and_abort() {
+        let mut ex = MissionExecutor::new(sample_mission()).unwrap();
+        ex.start();
+        assert_eq!(ex.index(), 0);
+        assert_eq!(ex.mission().id, "survey-01");
+        // current_target 把高度映射为 down = -alt。
+        if let Some(CommandTarget::Position { down, .. }) = ex.current_target() {
+            assert!((down + 30.0).abs() < 1e-4, "down={down}");
+        } else {
+            panic!("expected a position target");
+        }
+        ex.advance();
+        assert_eq!(ex.index(), 1);
+        ex.abort();
+        assert_eq!(ex.phase(), MissionPhase::Aborted);
+        assert_eq!(ex.progress().phase(), MissionPhase::Aborted);
+        // 中止后不应再产生目标。
+        ex.advance();
+        assert_eq!(ex.phase(), MissionPhase::Aborted);
+    }
 }

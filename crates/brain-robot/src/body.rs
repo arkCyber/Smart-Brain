@@ -20,7 +20,8 @@ pub trait RobotBody: Send {
     /// 下发一帧高层指令。
     fn send_command(&mut self, cmd: &EffectorCommand) -> Result<()>;
 
-    /// 关闭连接并释放资源。
+    /// 关闭身体并释放资源（默认空实现：无同步资源要释放的身体可省略）。
+    /// 需要"断电"语义的身体（如汽车/艇停止运动）应覆盖此方法。
     fn shutdown(&mut self) {}
 }
 

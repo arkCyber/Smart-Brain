@@ -121,4 +121,31 @@ mod tests {
         assert!(reg.get("missing").is_none());
         assert_eq!(reg.names(), vec!["nav".to_string(), "detect".to_string()]);
     }
+
+    #[test]
+    fn fn_tool_name_and_description() {
+        let t = FnTool::new("calc", "does math", |_| Ok("0".into()));
+        // 通过 Tool trait 暴露 name/description。
+        assert_eq!(t.name(), "calc");
+        assert_eq!(t.description(), "does math");
+    }
+
+    #[test]
+    fn registry_is_empty_and_default() {
+        assert!(ToolRegistry::new().is_empty());
+        assert!(ToolRegistry::default().is_empty());
+        assert_eq!(ToolRegistry::new().len(), 0);
+        let mut reg = ToolRegistry::new();
+        reg.add(Arc::new(FnTool::new("x", "x", |_| Ok("x".into()))));
+        assert!(!reg.is_empty());
+    }
+
+    #[test]
+    fn tool_run_error_propagates() {
+        // 工具内部错误应通过 run 传播。
+        let t = FnTool::new("failing", "always fails", |_| {
+            Err(brain_core::BrainError::Agent("boom".into()))
+        });
+        assert!(t.run(&HashMap::new()).is_err());
+    }
 }

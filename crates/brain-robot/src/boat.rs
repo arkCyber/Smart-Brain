@@ -159,7 +159,11 @@ impl RobotBody for BoatBody {
         Ok(())
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 真实"断电"语义：清除目标并停止推进。
+        self.goal = None;
+        self.drive(0.0, 0.0);
+    }
 }
 
 #[cfg(test)]
@@ -211,5 +215,98 @@ mod tests {
             boat.step();
         }
         assert!(boat.v == 0.0, "boat should stop, v={}", boat.v);
+    }
+
+    #[test]
+    fn pose_reports_initial() {
+        let boat = BoatBody::new(2.0, -1.0, 0.3);
+        let (x, y, th) = boat.pose();
+        assert!((x - 2.0).abs() < 1e-4);
+        assert!((y + 1.0).abs() < 1e-4);
+        assert!((th - 0.3).abs() < 1e-4);
+    }
+
+    #[test]
+    fn kind_is_surface_vessel() {
+        let boat = BoatBody::new(0.0, 0.0, 0.0);
+        assert_eq!(boat.kind(), RobotKind::SurfaceVessel);
+    }
+
+    #[test]
+    fn direct_drive_moves_and_rotates() {
+        let mut boat = BoatBody::new(0.0, 0.0, 0.0);
+        // 直线前进。
+        for _ in 0..5 {
+            boat.drive(2.0, 0.0);
+        }
+        let (x, _, _) = boat.pose();
+        assert!(x > 0.5, "should move forward, x={x}");
+        // 差速转向（omega>0）应改变朝向并产生横向位移。
+        let before = boat.theta;
+        boat.drive(1.0, 0.5);
+        assert!(boat.theta > before, "omega should turn the boat");
+    }
+
+    #[test]
+    fn hold_clears_goal_and_stops() {
+        let mut boat = BoatBody::new(0.0, 0.0, 0.0);
+        boat.set_goal(Vec3::new(10.0, 0.0, 0.0));
+        boat.step();
+        assert!(boat.v > 0.0, "should be moving toward goal");
+        boat.send_command(&EffectorCommand {
+            timestamp: 0,
+            locomotion: LocomotionMode::Idle,
+            task: Task::Hold,
+        })
+        .unwrap();
+        boat.step();
+        assert!(boat.v == 0.0, "hold should stop thrusters, v={}", boat.v);
+        assert!(boat.goal.is_none());
+    }
+
+    #[test]
+    fn read_state_exposes_thrusters_and_rudder() {
+        let mut boat = BoatBody::new(0.0, 0.0, 0.0);
+        // 设一个偏航目标，让尾舵有转角、推进器有速度。
+        boat.set_goal(Vec3::new(0.0, 20.0, 0.0));
+        for _ in 0..5 {
+            boat.step();
+        }
+        let st = boat.read_state().unwrap();
+        assert_eq!(st.kind, RobotKind::SurfaceVessel);
+        // 推进器速度 = v。
+        let thr = st
+            .joints
+            .iter()
+            .find(|j| j.name == "thruster_port")
+            .unwrap()
+            .velocity;
+        assert!((thr - boat.v).abs() < 1e-4);
+        // 尾舵位置在 [-1,1]。
+        let rudder = st
+            .joints
+            .iter()
+            .find(|j| j.name == "rudder")
+            .unwrap()
+            .position;
+        assert!(rudder.abs() <= 1.0);
+        // 角速度 = omega。
+        assert!((st.base.angular_vel.z - boat.omega).abs() < 1e-4);
+        // 两个吃水线接触点。
+        assert_eq!(st.contacts.len(), 2);
+        assert!(st.contacts.iter().all(|c| c.in_contact));
+    }
+
+    #[test]
+    fn shutdown_stops_boat_and_clears_goal() {
+        let mut boat = BoatBody::new(0.0, 0.0, 0.0);
+        boat.set_goal(Vec3::new(10.0, 0.0, 0.0));
+        boat.step();
+        assert!(boat.v > 0.0, "boat should be moving");
+        // shutdown = 断电：停止推进并清除目标。
+        boat.shutdown();
+        assert_eq!(boat.v, 0.0);
+        assert_eq!(boat.omega, 0.0);
+        assert!(boat.goal.is_none());
     }
 }

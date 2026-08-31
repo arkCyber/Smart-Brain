@@ -6,10 +6,12 @@
 
 pub mod command;
 pub mod frame;
+pub mod sensor;
 pub mod telemetry;
 
 pub use command::{Command, CommandTarget, Detection, Mode, TrackingStatus, WaypointCommand};
 pub use frame::{
     crc16, encode_frame, verify_frame, FrameReader, FRAME_OVERHEAD, MAX_FRAME_PAYLOAD,
 };
+pub use sensor::{ContactSample, ImuSample, OdometrySample, Quat, RangeScan};
 pub use telemetry::{Attitude, BatteryStatus, GpsFix, Telemetry, Vec3};

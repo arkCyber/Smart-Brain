@@ -106,4 +106,36 @@ mod tests {
         assert!(wd.check(1_000).is_none());
         assert_eq!(wd.status(), WatchdogStatus::Armed);
     }
+
+    #[test]
+    fn rearms_after_trip() {
+        let mut wd = FailsafeWatchdog::new(50);
+        // 喂狗后超时 -> Trip。
+        wd.feed(0);
+        assert!(matches!(
+            wd.check(100),
+            Some(FailsafeEvent::Trip { missed_ms: 100 })
+        ));
+        assert_eq!(wd.status(), WatchdogStatus::Tripped);
+        // 恢复喂狗 -> 状态转为 HadTrip，下一次 check 产生 ReArmed 事件。
+        wd.feed(200);
+        assert_eq!(wd.status(), WatchdogStatus::HadTrip);
+        assert!(matches!(wd.check(200), Some(FailsafeEvent::ReArmed)));
+        assert_eq!(wd.status(), WatchdogStatus::HadTrip);
+        // 之后心跳正常则无事件。
+        assert!(wd.check(210).is_none());
+        assert!(wd.check(220).is_none());
+    }
+
+    #[test]
+    fn can_trip_again_after_rearm() {
+        let mut wd = FailsafeWatchdog::new(50);
+        wd.feed(0);
+        assert!(matches!(wd.check(100), Some(FailsafeEvent::Trip { .. })));
+        wd.feed(150);
+        assert!(matches!(wd.check(150), Some(FailsafeEvent::ReArmed)));
+        // 再次超时 -> 再次 Trip。
+        assert!(matches!(wd.check(250), Some(FailsafeEvent::Trip { .. })));
+        assert_eq!(wd.status(), WatchdogStatus::Tripped);
+    }
 }

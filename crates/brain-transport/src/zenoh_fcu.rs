@@ -30,7 +30,7 @@ pub mod keys {
 /// 底层可换成 `LocalZenoh`（仿真）或真实 `zenoh`（真机/蜂群）。
 pub struct ZenohFcuTransport {
     backend: Arc<dyn CommBackend>,
-    telemetry_sub: Subscription,
+    telemetry_sub: Option<Subscription>,
 }
 
 impl ZenohFcuTransport {
@@ -39,7 +39,7 @@ impl ZenohFcuTransport {
         let telemetry_sub = backend.subscribe(keys::TELEMETRY)?;
         Ok(Self {
             backend,
-            telemetry_sub,
+            telemetry_sub: Some(telemetry_sub),
         })
     }
 }
@@ -50,16 +50,19 @@ impl FcuTransport for ZenohFcuTransport {
     }
 
     fn try_recv_telemetry(&mut self) -> Result<Option<Telemetry>> {
-        match self.telemetry_sub.try_recv() {
-            Ok(sample) => {
+        match self.telemetry_sub.as_ref().map(Subscription::try_recv) {
+            Some(Ok(sample)) => {
                 let telem: Telemetry = decode(&sample.value)?;
                 Ok(Some(telem))
             }
-            Err(_) => Ok(None),
+            _ => Ok(None),
         }
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 释放遥测订阅通道（取消订阅），不再接收新的遥测。
+        self.telemetry_sub = None;
+    }
 }
 
 /// 模拟小脑：订阅 `fcu/command`，收到指令后发布一帧遥测回传。
@@ -67,7 +70,7 @@ impl FcuTransport for ZenohFcuTransport {
 /// 对应真实场景里跑 **zenoh-pico** 的 STM32：收到命令 → 执行 → 上报遥测。
 pub struct MockFcuZenoh {
     backend: Arc<dyn CommBackend>,
-    command_sub: Subscription,
+    command_sub: Option<Subscription>,
     telemetry: Telemetry,
 }
 
@@ -76,14 +79,17 @@ impl MockFcuZenoh {
         let command_sub = backend.subscribe(keys::COMMAND)?;
         Ok(Self {
             backend,
-            command_sub,
+            command_sub: Some(command_sub),
             telemetry: Telemetry::default_at(0),
         })
     }
 
     /// 处理一条命令（若队列中有），并回传一帧遥测。
     pub fn poll_and_respond(&mut self) -> Result<bool> {
-        if let Ok(sample) = self.command_sub.try_recv() {
+        let Some(sub) = self.command_sub.as_ref() else {
+            return Ok(false); // 已 shutdown
+        };
+        if let Ok(sample) = sub.try_recv() {
             let cmd: Command = decode(&sample.value)?;
             // 简单响应：按模式更新高度。
             match cmd.mode {
@@ -103,6 +109,11 @@ impl MockFcuZenoh {
     /// 当前遥测（只读）。
     pub fn telemetry(&self) -> &Telemetry {
         &self.telemetry
+    }
+
+    /// 释放命令订阅通道（取消订阅）。
+    pub fn shutdown(&mut self) {
+        self.command_sub = None;
     }
 }
 
@@ -153,5 +164,65 @@ mod tests {
         let mut brain_fcu = ZenohFcuTransport::new(backend).unwrap();
         assert!(brain_fcu.try_recv_telemetry().unwrap().is_some());
         let _ = &mut fcu;
+    }
+
+    #[test]
+    fn brain_returns_none_when_no_telemetry() {
+        let backend: Arc<dyn CommBackend> = Arc::new(LocalZenoh::new());
+        let mut brain_fcu = ZenohFcuTransport::new(backend).unwrap();
+        // 尚未有任何遥测发布 -> 返回 None（不 panic）。
+        assert!(brain_fcu.try_recv_telemetry().unwrap().is_none());
+        brain_fcu.shutdown();
+    }
+
+    #[test]
+    fn fcu_poll_no_command_returns_false() {
+        let backend: Arc<dyn CommBackend> = Arc::new(LocalZenoh::new());
+        let mut fcu = MockFcuZenoh::new(backend).unwrap();
+        // 队列为空 -> 返回 false。
+        assert!(!fcu.poll_and_respond().unwrap());
+    }
+
+    #[test]
+    fn fcu_telemetry_accessor() {
+        let backend: Arc<dyn CommBackend> = Arc::new(LocalZenoh::new());
+        let fcu = MockFcuZenoh::new(backend).unwrap();
+        assert_eq!(fcu.telemetry().gps.alt, 0.0);
+    }
+
+    #[test]
+    fn fcu_land_mode_resets_altitude() {
+        let backend: Arc<dyn CommBackend> = Arc::new(LocalZenoh::new());
+        let mut fcu = MockFcuZenoh::new(backend.clone()).unwrap();
+        let mut brain_fcu = ZenohFcuTransport::new(backend).unwrap();
+        // 先起飞（高度 30）。
+        brain_fcu
+            .send_command(&Command {
+                timestamp: 1,
+                mode: Mode::Takeoff,
+                target: CommandTarget::None,
+            })
+            .unwrap();
+        assert!(fcu.poll_and_respond().unwrap());
+        assert!(fcu.telemetry().gps.alt > 20.0);
+        // 降落（高度 0）。
+        brain_fcu
+            .send_command(&Command {
+                timestamp: 2,
+                mode: Mode::Land,
+                target: CommandTarget::None,
+            })
+            .unwrap();
+        assert!(fcu.poll_and_respond().unwrap());
+        assert_eq!(fcu.telemetry().gps.alt, 0.0);
+    }
+
+    #[test]
+    fn shutdown_stops_receiving_telemetry() {
+        let backend: Arc<dyn CommBackend> = Arc::new(LocalZenoh::new());
+        let mut brain_fcu = ZenohFcuTransport::new(backend).unwrap();
+        // shutdown 释放订阅后，不再返回任何遥测。
+        brain_fcu.shutdown();
+        assert!(brain_fcu.try_recv_telemetry().unwrap().is_none());
     }
 }

@@ -189,7 +189,12 @@ impl RobotBody for CarBody {
         Ok(())
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 真实"断电"语义：清除目标并停止行驶。
+        self.goal = None;
+        self.drive(0.0, 0.0);
+        self.wheel_travel = 0.0;
+    }
 }
 
 #[cfg(test)]
@@ -254,5 +259,105 @@ mod tests {
             "car should be halted, speed={}",
             car.st.speed
         );
+    }
+
+    #[test]
+    fn pose_reports_initial() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let car = CarBody::new(model, 1.0, -2.0, 0.5);
+        let (x, y, th) = car.pose();
+        assert!((x - 1.0).abs() < 1e-4);
+        assert!((y + 2.0).abs() < 1e-4);
+        assert!((th - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn kind_is_car() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let car = CarBody::new(model, 0.0, 0.0, 0.0);
+        assert_eq!(car.kind(), RobotKind::Car);
+    }
+
+    #[test]
+    fn direct_drive_moves_and_turns() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let mut car = CarBody::new(model, 0.0, 0.0, 0.0);
+        let p0 = car.pose();
+        // 直线加速 5 步。
+        for _ in 0..5 {
+            car.drive(2.0, 0.0);
+        }
+        let (x, _, _) = car.pose();
+        assert!(x > p0.0 + 0.5, "should move forward, x={x}");
+        // 打满转向应产生横移与转向。
+        let (x1, y1, _) = car.pose();
+        car.drive(2.0, 0.5);
+        let (x2, y2, _) = car.pose();
+        assert!(y2 != y1, "turning should change lateral pos");
+        assert!(x2 >= x1);
+        // 车轮行程累计非零。
+        assert!(car.wheel_travel > 0.0);
+    }
+
+    #[test]
+    fn reach_goal_sets_goal() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let mut car = CarBody::new(model, 0.0, 0.0, 0.0);
+        car.send_command(&EffectorCommand {
+            timestamp: 0,
+            locomotion: LocomotionMode::Navigate,
+            task: Task::Reach(TaskTarget::Point(Vec3::new(5.0, 0.0, 0.0))),
+        })
+        .unwrap();
+        assert!(car.goal.is_some());
+        for _ in 0..50 {
+            car.step();
+        }
+        let (x, _, _) = car.pose();
+        assert!(x > 3.0, "should approach reach goal, x={x}");
+    }
+
+    #[test]
+    fn read_state_exposes_steering_joints_and_angular_vel() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let mut car = CarBody::new(model, 0.0, 0.0, 0.0);
+        // 给一个转向，然后读状态。
+        car.set_goal(Vec3::new(0.0, 20.0, 0.0));
+        for _ in 0..5 {
+            car.step();
+        }
+        let st = car.read_state().unwrap();
+        assert_eq!(st.kind, RobotKind::Car);
+        // 转向关节跟随当前前轮转角。
+        let steer = st
+            .joints
+            .iter()
+            .find(|j| j.name == "steer_fl")
+            .unwrap()
+            .position;
+        assert!((steer - car.st.steering).abs() < 1e-4, "steer={steer}");
+        // 角速度 = 自行车模型角速度。
+        let wz = st.base.angular_vel.z;
+        let expect = model.angular_velocity(car.st.speed, car.st.steering);
+        assert!((wz - expect).abs() < 1e-4);
+        // 四个接地点。
+        assert_eq!(st.contacts.len(), 4);
+        assert!(st.contacts.iter().all(|c| c.in_contact));
+    }
+
+    #[test]
+    fn shutdown_stops_car_and_clears_goal() {
+        let model = BicycleModel::new(2.6, 0.6, 0.8);
+        let mut car = CarBody::new(model, 0.0, 0.0, 0.0);
+        car.set_goal(Vec3::new(10.0, 0.0, 0.0));
+        for _ in 0..5 {
+            car.step();
+        }
+        assert!(car.st.speed > 0.0, "car should be moving");
+        // shutdown = 断电：停止并清除目标。
+        car.shutdown();
+        assert_eq!(car.st.speed, 0.0);
+        assert!(car.goal.is_none());
+        assert_eq!(car.wheel_travel, 0.0);
     }
 }

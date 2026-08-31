@@ -10,3 +10,15 @@ brain-core.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+
+[features]
+default = []
+# 真实 HTTP LLM 后端（OpenAI 兼容 /chat/completions）。默认关闭保持构建轻量；
+# 真机部署/接入真实模型时启用：`cargo build -p brain-agent --features http-llm`。
+http-llm = ["dep:ureq"]
+
+[dependencies.ureq]
+version = "2"
+optional = true
+default-features = false
+features = ["tls", "gzip", "json"]

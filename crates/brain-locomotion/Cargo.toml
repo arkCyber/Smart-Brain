@@ -1,0 +1,15 @@
+[package]
+name = "brain-locomotion"
+description = "Smart-Brain locomotion layer: gait phase generation, foot trajectories, and velocity->foot-target control for legged robots"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brain-core.workspace = true
+brain-robot.workspace = true
+brain-kinematics.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

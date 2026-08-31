@@ -29,7 +29,8 @@ pub trait FcuTransport: Send {
     /// 读取最新一帧飞控遥测（若可用）。
     fn try_recv_telemetry(&mut self) -> Result<Option<Telemetry>>;
 
-    /// 关闭连接并释放资源。
+    /// 关闭连接并释放资源（默认空实现：多数后端在 `Drop` 时释放 OS 句柄）。
+    /// 需要立即释放/停止的后端（串口/CAN/UDP）应覆盖此方法。
     fn shutdown(&mut self) {}
 }
 
@@ -52,5 +53,85 @@ pub fn open_transport(kind: &str) -> Result<Box<dyn FcuTransport>> {
         other => Err(brain_core::BrainError::Transport(format!(
             "unknown transport kind: {other}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_message::{Command, CommandTarget, Mode};
+
+    #[test]
+    fn open_transport_mock_roundtrip() {
+        let mut t = open_transport("mock").unwrap();
+        t.send_command(&Command {
+            timestamp: 1,
+            mode: Mode::Takeoff,
+            target: CommandTarget::None,
+        })
+        .unwrap();
+        // mock 传输可立即返回一帧遥测。
+        assert!(t.try_recv_telemetry().unwrap().is_some());
+        t.shutdown(); // 默认实现，不 panic
+    }
+
+    #[test]
+    fn open_transport_udp_connects() {
+        let mut t = open_transport("udp").unwrap();
+        // UDP 双向通道就绪：发指令不报错，无遥测时返回 None。
+        t.send_command(&Command {
+            timestamp: 1,
+            mode: Mode::Loiter,
+            target: CommandTarget::None,
+        })
+        .unwrap();
+        // 尚未收到对端遥测 -> None（不 panic）。
+        let _ = t.try_recv_telemetry();
+        t.shutdown();
+    }
+
+    #[test]
+    fn open_transport_serial_requires_feature() {
+        // 未启用 `serial` feature 时应优雅报错，而非 panic。
+        let r = open_transport("serial");
+        #[cfg(feature = "serial")]
+        assert!(
+            r.is_err(),
+            "serial open needs a real port; here it should fail"
+        );
+        #[cfg(not(feature = "serial"))]
+        assert!(r.is_err(), "serial feature not enabled should error");
+    }
+
+    #[test]
+    fn open_transport_unknown_kind_errors() {
+        // Box<dyn FcuTransport> 无 Debug，用 match 而非 unwrap_err。
+        match open_transport("bluetooth") {
+            Err(e) => assert!(e.to_string().contains("unknown transport kind")),
+            Ok(_) => panic!("unknown kind should error"),
+        }
+    }
+
+    #[test]
+    fn fcu_transport_shutdown_default_is_noop() {
+        // 自定义空实现验证 trait 的默认 shutdown()。
+        struct Noop;
+        impl FcuTransport for Noop {
+            fn send_command(&mut self, _: &Command) -> Result<()> {
+                Ok(())
+            }
+            fn try_recv_telemetry(&mut self) -> Result<Option<Telemetry>> {
+                Ok(None)
+            }
+        }
+        let mut t = Noop;
+        t.send_command(&Command {
+            timestamp: 0,
+            mode: Mode::Idle,
+            target: CommandTarget::None,
+        })
+        .unwrap();
+        assert!(t.try_recv_telemetry().unwrap().is_none());
+        t.shutdown(); // 默认 no-op
     }
 }

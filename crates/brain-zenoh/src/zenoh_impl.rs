@@ -17,12 +17,18 @@ use zenoh::key_expr::KeyExpr;
 use crate::backend::{CommBackend, QueryHandler, QueryableHandle, Subscription};
 use crate::core::{Reply, Sample, Value};
 
+/// 持有已声明 `queryable` 的容器，保持其存活以对抗 GC。
+///
+/// 注销时把槽位置 `None`（该槽位的 `Queryable` 被 Drop → 自动 undeclare）。
+/// 用类型别名避免 `clippy::type_complexity`，并让意图一目了然。
+type QueryableStorage = Arc<Mutex<Vec<Option<Box<dyn Any + Send>>>>>;
+
 /// 基于真实 Zenoh 会话的后端。
 pub struct ZenohBackend {
     rt: tokio::runtime::Runtime,
     session: zenoh::Session,
     // 保持 queryable 存活；注销时置 None（Drop 即 undeclare）。
-    queryables: Arc<Mutex<Vec<Option<Box<dyn Any + Send>>>>>,
+    queryables: QueryableStorage,
 }
 
 impl ZenohBackend {
@@ -143,7 +149,7 @@ impl CommBackend for ZenohBackend {
             .block_on(async move { session.declare_queryable(keyexpr).callback(cb).await })
             .map_err(|e| BrainError::Bus(e.to_string()))?;
 
-        let mut qs = self.queryables.lock().unwrap();
+        let mut qs = self.queryables.lock().unwrap_or_else(|p| p.into_inner());
         let idx = qs.len();
         qs.push(Some(Box::new(queryable) as Box<dyn Any + Send>));
         drop(qs);

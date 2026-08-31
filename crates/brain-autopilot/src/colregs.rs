@@ -3,24 +3,63 @@
 //! 面向水面自动驾驶艇，把两艇会遇态势分类并给出避让动作建议：
 //! - **对遇（Head-on）**：双方各向右转（Give Way Starboard）；
 //! - **交叉（Crossing）**：本船右舷有来船时本船让路（右转），左舷有来船时保向；
+//!   **若对方是帆船而本船是机动船，机动船仍须让路（帆船优先通行权）**；
 //! - **追越（Overtaking）**：追越船让路（通常从右舷超越）；
+//! - **能见度受限（Restricted Visibility）**：双方均须安全航速并主动让路
+//!   （Rule 19），不再区分让路/保向船；
 //! - 距离足够远则“无风险 / 不动作”。
 //!
-//! 这是规则层（高层决策），具体由 `BoatAutopilot`/避障层执行。
+//! 这是规则层（高层决策），具体由 `BoatAutopilot`/避障层执行。AIS 解码见
+//! [`crate::ais`]，可把多艇目标喂给本引擎做会遇分类。
 
 use brain_kinematics::norm_angle;
 
-/// 一艇的位姿（位置 + 航向）。
-#[derive(Debug, Clone, Copy)]
+/// 船舶动力类型（影响交叉相遇的让路/保向判定）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Propulsion {
+    /// 机动船（动力推进）：交叉相遇时须让帆船。
+    PowerDriven,
+    /// 帆船（在航，非机动船）：交叉相遇时具有优先通行权。
+    Sailing,
+}
+
+/// 能见度状况。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    /// 能见度良好（互见）。
+    Clear,
+    /// 能见度受限（雾/霾/夜航等，Rule 19：双方均须主动让路、安全航速）。
+    Restricted,
+}
+
+/// 一艇的位姿（位置 + 航向 + 动力类型）。
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct VesselPose {
     pub x: f32,
     pub y: f32,
     pub heading: f32,
+    pub propulsion: Propulsion,
 }
 
 impl VesselPose {
+    /// 机动船位姿（默认动力推进）。
     pub fn new(x: f32, y: f32, heading: f32) -> Self {
-        Self { x, y, heading }
+        Self {
+            x,
+            y,
+            heading,
+            propulsion: Propulsion::PowerDriven,
+        }
+    }
+
+    /// 帆船位姿。
+    pub fn sailing(x: f32, y: f32, heading: f32) -> Self {
+        Self {
+            x,
+            y,
+            heading,
+            propulsion: Propulsion::Sailing,
+        }
     }
 }
 
@@ -33,6 +72,8 @@ pub enum EncounterType {
     Crossing,
     /// 追越。
     Overtaking,
+    /// 能见度受限下的会遇（双方均须主动让路）。
+    RestrictedVisibility,
     /// 无风险。
     NoRisk,
 }
@@ -46,6 +87,8 @@ pub enum ColregsAction {
     StandOn,
     /// 减速（必要时配合转向）。
     SlowDown,
+    /// 能见度受限：以安全航速行驶（Rule 19）。
+    ProceedSafeSpeed,
     /// 不动作。
     None,
 }
@@ -61,6 +104,8 @@ pub struct ColregsParams {
     pub overtake_heading_tol: f32,
     /// 对遇判定：相对航向角阈值（rad，接近 π 为对遇）。
     pub headon_heading_tol: f32,
+    /// 能见度状况（默认良好）。
+    pub visibility: Visibility,
 }
 
 impl Default for ColregsParams {
@@ -69,6 +114,7 @@ impl Default for ColregsParams {
             risk_radius: 50.0,
             overtake_heading_tol: std::f32::consts::FRAC_PI_4, // 45°
             headon_heading_tol: std::f32::consts::FRAC_PI_4,   // 45°（与 π 的偏差）
+            visibility: Visibility::Clear,
         }
     }
 }
@@ -97,6 +143,20 @@ impl Colregs {
         // 对方相对航向（与 0 的差衡量是否同向/相向）。
         let rel_course = norm_angle(other.heading - own.heading);
 
+        // 能见度受限（Rule 19）：双方均须安全航速并主动让路，不再判定让路/保向船。
+        if p.visibility == Visibility::Restricted {
+            let converging = rel_bearing.abs() < p.headon_heading_tol
+                || (rel_course.abs() - std::f32::consts::PI).abs() < p.headon_heading_tol;
+            return (
+                EncounterType::RestrictedVisibility,
+                if converging {
+                    ColregsAction::GiveWayStarboard
+                } else {
+                    ColregsAction::ProceedSafeSpeed
+                },
+            );
+        }
+
         // 追越：对方大致同向且在其前。
         if rel_course.abs() < p.overtake_heading_tol {
             let other_ahead = rel_bearing.abs() < p.overtake_heading_tol;
@@ -113,8 +173,13 @@ impl Colregs {
             return (EncounterType::HeadOn, ColregsAction::GiveWayStarboard);
         }
 
-        // 交叉：对方在本船右舷（rel_bearing>0）→ 本船让路右转；在左舷 → 保向。
+        // 交叉：对方在右舷 → 本船让路右转；
+        //      对方在左舷 → 若对方是帆船且本船是机动船，机动船仍须让路（帆船优先）；
+        //                   否则本船保向（对方让路）。
         if rel_bearing > 0.0 {
+            (EncounterType::Crossing, ColregsAction::GiveWayStarboard)
+        } else if other.propulsion == Propulsion::Sailing && own.propulsion == Propulsion::PowerDriven
+        {
             (EncounterType::Crossing, ColregsAction::GiveWayStarboard)
         } else {
             (EncounterType::Crossing, ColregsAction::StandOn)
@@ -177,5 +242,54 @@ mod tests {
         let (t, a) = Colregs::classify(own, other, &p());
         assert_eq!(t, EncounterType::NoRisk);
         assert_eq!(a, ColregsAction::None);
+    }
+
+    #[test]
+    fn restricted_visibility_give_way_when_converging() {
+        // 能见度受限 + 正前方有船相向 → 双方均主动让路（右转），不再有保向船。
+        let params = ColregsParams {
+            visibility: Visibility::Restricted,
+            ..ColregsParams::default()
+        };
+        let own = VesselPose::new(0.0, 0.0, 0.0);
+        let other = VesselPose::new(10.0, 0.0, std::f32::consts::PI); // 相向
+        let (t, a) = Colregs::classify(own, other, &params);
+        assert_eq!(t, EncounterType::RestrictedVisibility);
+        assert_eq!(a, ColregsAction::GiveWayStarboard);
+    }
+
+    #[test]
+    fn restricted_visibility_safe_speed_when_off_bearing() {
+        // 能见度受限但对方不在会遇航向上 → 保持安全航速，不贸然转向。
+        let params = ColregsParams {
+            visibility: Visibility::Restricted,
+            ..ColregsParams::default()
+        };
+        let own = VesselPose::new(0.0, 0.0, 0.0);
+        // 对方在侧后方且同向（非对遇/追越圆锥内）。
+        let other = VesselPose::new(-10.0, 20.0, 1.0);
+        let (t, a) = Colregs::classify(own, other, &params);
+        assert_eq!(t, EncounterType::RestrictedVisibility);
+        assert_eq!(a, ColregsAction::ProceedSafeSpeed);
+    }
+
+    #[test]
+    fn power_driven_gives_way_to_sailing_on_port() {
+        // 对方（帆船）在本船左舷 → 本船（机动船）仍须让路（帆船优先通行权）。
+        let own = VesselPose::new(0.0, 0.0, 0.0); // 机动船
+        let other = VesselPose::sailing(8.0, -5.0, 1.1); // 左舷帆船
+        let (t, a) = Colregs::classify(own, other, &p());
+        assert_eq!(t, EncounterType::Crossing);
+        assert_eq!(a, ColregsAction::GiveWayStarboard);
+    }
+
+    #[test]
+    fn power_driven_stand_on_when_other_power_driven_on_port() {
+        // 对方也是机动船且在左舷 → 本船保向（对方让路）。
+        let own = VesselPose::new(0.0, 0.0, 0.0);
+        let other = VesselPose::new(8.0, -5.0, 1.1); // 默认机动船
+        let (t, a) = Colregs::classify(own, other, &p());
+        assert_eq!(t, EncounterType::Crossing);
+        assert_eq!(a, ColregsAction::StandOn);
     }
 }

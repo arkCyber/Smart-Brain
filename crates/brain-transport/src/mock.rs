@@ -61,7 +61,11 @@ impl FcuTransport for MockTransport {
         Ok(Some(self.telemetry.clone()))
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 清空仿真飞控内部状态：指令记录与遥测重置。
+        self.received_commands.clear();
+        self.telemetry = Telemetry::default_at(0);
+    }
 }
 
 #[cfg(test)]
@@ -123,5 +127,18 @@ mod tests {
         let got = t.try_recv_telemetry().unwrap().unwrap();
         assert_eq!(got.timestamp, 7);
         assert_eq!(got.battery.remaining_pct, 33.0);
+    }
+
+    #[test]
+    fn shutdown_clears_state() {
+        let mut t = MockTransport::new();
+        t.send_command(&cmd(Mode::Takeoff)).unwrap();
+        assert_eq!(t.command_count(), 1);
+        t.shutdown();
+        // shutdown 清空指令记录并重置遥测。
+        assert_eq!(t.command_count(), 0);
+        let telem = t.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(telem.gps.alt, 0.0);
+        assert_eq!(telem.gps.fix_type, FixType::NoFix);
     }
 }

@@ -153,7 +153,7 @@ pub fn encode_telemetry(t: &Telemetry) -> Result<Vec<CanFrame>> {
 /// 基于 Linux SocketCAN 的 `FcuTransport`（可选 `can` feature，仅 Linux）。
 pub struct CanTransport {
     #[cfg(all(feature = "can", target_os = "linux"))]
-    socket: socketcan::CanSocket,
+    socket: Option<socketcan::CanSocket>,
     /// 累积收到的 Telemetry 分片，用于重组。
     #[cfg(all(feature = "can", target_os = "linux"))]
     pending_telem: Vec<CanFrame>,
@@ -170,7 +170,7 @@ impl CanTransport {
                 .map_err(|e| BrainError::Transport(format!("open {iface}: {e}")))?;
             let _ = socket.set_nonblocking(true);
             Ok(Self {
-                socket,
+                socket: Some(socket),
                 pending_telem: Vec::new(),
             })
         }
@@ -187,10 +187,14 @@ impl crate::FcuTransport for CanTransport {
     fn send_command(&mut self, cmd: &Command) -> Result<()> {
         #[cfg(all(feature = "can", target_os = "linux"))]
         {
+            let socket = self
+                .socket
+                .as_ref()
+                .ok_or_else(|| BrainError::Transport("can transport closed".into()))?;
             for f in encode_command(cmd)? {
                 let frame = socketcan::CanFrame::new(f.id, f.payload())
                     .ok_or_else(|| BrainError::Transport("invalid can id".into()))?;
-                self.socket
+                socket
                     .write_frame(&frame)
                     .map_err(|e| BrainError::Transport(format!("can write: {e}")))?;
             }
@@ -209,14 +213,16 @@ impl crate::FcuTransport for CanTransport {
         #[cfg(all(feature = "can", target_os = "linux"))]
         {
             // 非阻塞读取所有已就绪的帧并累积到重组缓冲。
-            loop {
-                match self.socket.read_frame() {
-                    Ok(f) => {
-                        if (f.id() & 0x300) == CAN_TELEM_BASE_ID {
-                            self.pending_telem.push(CanFrame::new(f.id(), f.data())?);
+            if let Some(socket) = self.socket.as_ref() {
+                loop {
+                    match socket.read_frame() {
+                        Ok(f) => {
+                            if (f.id() & 0x300) == CAN_TELEM_BASE_ID {
+                                self.pending_telem.push(CanFrame::new(f.id(), f.data())?);
+                            }
                         }
+                        Err(_) => break, // 无更多数据（含 WouldBlock）
                     }
-                    Err(_) => break, // 无更多数据（含 WouldBlock）
                 }
             }
             if let Some(t) = decode_telemetry(&self.pending_telem)? {
@@ -231,7 +237,14 @@ impl crate::FcuTransport for CanTransport {
         }
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 真实释放 SocketCAN 套接字，并清空重组缓冲。
+        #[cfg(all(feature = "can", target_os = "linux"))]
+        {
+            self.socket = None;
+            self.pending_telem.clear();
+        }
+    }
 }
 
 #[cfg(test)]

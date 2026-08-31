@@ -78,3 +78,102 @@ pub enum TrackingStatus {
     Locked { target: Detection, lock_age_ms: u64 },
     Lost { last_seen_ms: u64 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn round_trip<
+        T: serde::Serialize + for<'a> serde::Deserialize<'a> + PartialEq + std::fmt::Debug,
+    >(
+        v: &T,
+    ) {
+        let json = serde_json::to_string(v).unwrap();
+        let back: T = serde_json::from_str(&json).unwrap();
+        assert_eq!(v, &back, "serde round-trip failed for {json}");
+    }
+
+    #[test]
+    fn mode_serde_round_trip() {
+        for m in [
+            Mode::Idle,
+            Mode::Takeoff,
+            Mode::Cruise,
+            Mode::Track,
+            Mode::Land,
+            Mode::ReturnHome,
+            Mode::Loiter,
+        ] {
+            round_trip(&m);
+        }
+    }
+
+    #[test]
+    fn command_target_serde_round_trip() {
+        round_trip(&CommandTarget::None);
+        round_trip(&CommandTarget::Position {
+            north: 1.0,
+            east: -2.0,
+            down: -30.0,
+        });
+        round_trip(&CommandTarget::Velocity(Vec3::new(0.1, 0.2, 0.0)));
+    }
+
+    #[test]
+    fn command_serde_round_trip() {
+        let cmd = Command {
+            timestamp: 1234,
+            mode: Mode::Cruise,
+            target: CommandTarget::Position {
+                north: 80.0,
+                east: 40.0,
+                down: -20.0,
+            },
+        };
+        round_trip(&cmd);
+    }
+
+    #[test]
+    fn waypoint_command_serde_round_trip() {
+        round_trip(&WaypointCommand {
+            sequence: 3,
+            north: 1.0,
+            east: 2.0,
+            down: -30.0,
+            accept_radius: 2.5,
+        });
+    }
+
+    #[test]
+    fn detection_and_tracking_status_serde_round_trip() {
+        let det = Detection {
+            class_id: 0,
+            confidence: 0.95,
+            bearing_yaw: 0.1,
+            bearing_pitch: -0.05,
+            range_m: 12.5,
+        };
+        round_trip(&det);
+        round_trip(&TrackingStatus::NoTarget);
+        round_trip(&TrackingStatus::Acquiring);
+        round_trip(&TrackingStatus::Locked {
+            target: det.clone(),
+            lock_age_ms: 42,
+        });
+        round_trip(&TrackingStatus::Lost { last_seen_ms: 999 });
+    }
+
+    #[test]
+    fn command_json_shape_stable() {
+        // 序列化形状稳定性：保证不会因字段重排破坏线上协议。
+        let cmd = Command {
+            timestamp: 7,
+            mode: Mode::Takeoff,
+            target: CommandTarget::None,
+        };
+        let json = serde_json::to_value(&cmd).unwrap();
+        assert_eq!(json["timestamp"], 7);
+        assert_eq!(json["mode"], "Takeoff");
+        assert_eq!(json["target"], "None");
+    }
+}

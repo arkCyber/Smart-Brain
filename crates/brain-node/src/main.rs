@@ -13,11 +13,15 @@ mod boat_demo;
 mod car_driving_demo;
 mod comprehensive_demo;
 mod embodiment;
+mod generic_demo;
 mod indoor;
 mod kalman_demo;
+mod locomotion_sim_demo;
 mod parallel;
 mod safety_guard;
+mod stereo_demo;
 mod swarm_coord_demo;
+mod time_sync_demo;
 mod tree_builder;
 mod zenoh_demo;
 mod zenoh_fcu_demo;
@@ -320,6 +324,18 @@ fn main() {
 
     // 卡尔曼滤波传感器融合（IMU 预测 + VO 测量）演示。
     kalman_demo::run();
+
+    // 步态 + 仿真集成（四足行走 / 确定性仿真后端）演示。
+    locomotion_sim_demo::run();
+
+    // 时间同步（NTP 风格四时间戳握手）演示。
+    time_sync_demo::run();
+
+    // 双目立体视觉（两个相机 → 视差 → 三维点云）演示。
+    stereo_demo::run();
+
+    // 通用状态机（RobotState）+ 通用传感器话题（sensor/imu 等）演示。
+    generic_demo::run();
 
     // 并行（多线程）流水线：感知线程 + 决策线程共享总线。
     parallel::run_parallel_demo();

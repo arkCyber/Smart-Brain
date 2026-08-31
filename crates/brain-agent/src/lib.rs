@@ -11,12 +11,16 @@
 //! - `agent`：`Agent` 主循环（生成→调用工具→回填结果→直到给出最终答复）
 
 pub mod agent;
+#[cfg(feature = "http-llm")]
+pub mod http_model;
 pub mod model;
 pub mod rag;
 pub mod tool;
 pub mod types;
 
 pub use agent::Agent;
+#[cfg(feature = "http-llm")]
+pub use http_model::{HttpModel, ToolSchema};
 pub use model::{MockModel, Model, ModelOutput};
 pub use rag::{Document, Embedder, MemoryStore, MockEmbedder, RetrieveTool};
 pub use tool::{FnTool, Tool, ToolRegistry};

@@ -13,12 +13,19 @@ pub mod imu;
 pub mod kabsch;
 pub mod kalman;
 pub mod sensor;
+pub mod stereo;
 pub mod vio;
 pub mod vo;
 
 pub use buffer::{align_to, AlignmentError, TimestampAligned};
 pub use imu::ImuIntegrator;
 pub use kalman::{KalmanFilter, KalmanFusion3d};
-pub use sensor::{depth_to_pointcloud, DepthFrame, ImuSample, PinholeCamera, PointCloud};
+pub use sensor::{
+    cloud_centroid, cloud_transform, depth_to_pointcloud, depth_to_pointcloud_subsampled,
+    DepthFrame, ImuSample, PinholeCamera, PointCloud,
+};
+pub use stereo::{
+    compute_disparity, disparity_to_pointcloud, process_stereo, StereoCamera, StereoResult,
+};
 pub use vio::{VioEstimate, VisualInertialOdometry};
 pub use vo::{IcpConfig, VisualOdometry};

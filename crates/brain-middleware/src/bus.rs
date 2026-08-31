@@ -135,6 +135,18 @@ pub mod topics {
     pub const ACTIVE_WAYPOINT: &str = "mission/active_waypoint";
     /// 蜂群共享态势。
     pub const SWARM_SHARE: &str = "swarm/share";
+
+    // ---- 通用（身体无关）传感器与状态话题 ----
+    /// 通用 IMU 样本。
+    pub const SENSOR_IMU: &str = "sensor/imu";
+    /// 通用里程计样本。
+    pub const SENSOR_ODOMETRY: &str = "sensor/odometry";
+    /// 通用测距扫描（激光/超声波）。
+    pub const SENSOR_RANGE: &str = "sensor/range";
+    /// 通用接触力样本。
+    pub const SENSOR_CONTACT: &str = "sensor/contact";
+    /// 通用机器人状态机状态。
+    pub const ROBOT_STATE: &str = "state/robot";
 }
 
 #[cfg(test)]
@@ -191,5 +203,17 @@ mod tests {
         bus.publish::<u32>(topics::TELEMETRY, 0, 0).unwrap();
         assert_eq!(bus.len(), 1);
         assert!(!bus.is_empty());
+    }
+
+    #[test]
+    fn sensor_topics_carry_typed_samples() {
+        use brain_core::Vec3;
+        use brain_message::sensor::ImuSample;
+        let bus = DataBus::new();
+        let sample = ImuSample::new(7, Vec3::new(0.0, 0.0, -9.81), Vec3::ZERO);
+        bus.publish(topics::SENSOR_IMU, sample.clone(), 7).unwrap();
+        let t: Arc<Topic<ImuSample>> = bus.topic(topics::SENSOR_IMU).unwrap();
+        assert_eq!(t.peek(), Some(sample));
+        assert_eq!(t.last_updated(), 7);
     }
 }

@@ -328,7 +328,12 @@ impl crate::FcuTransport for MavLinkTransport {
         Ok(self.pending.pop_front())
     }
 
-    fn shutdown(&mut self) {}
+    fn shutdown(&mut self) {
+        // 清空待发送帧与已解码遥测队列，重置分帧器（纯内存桥接，无 OS 资源）。
+        self.tx.clear();
+        self.pending.clear();
+        self.reader = FrameReader::new();
+    }
 }
 
 #[cfg(test)]
@@ -433,5 +438,21 @@ mod tests {
         // 接收方解析命令帧（这里验证字节流可被解码）。
         rx.ingest(&bytes).unwrap();
         let _ = rx.try_recv_telemetry().unwrap();
+    }
+
+    #[test]
+    fn shutdown_clears_buffers() {
+        let mut tx = MavLinkTransport::new();
+        tx.send_command(&Command {
+            timestamp: 1,
+            mode: Mode::Cruise,
+            target: CommandTarget::None,
+        })
+        .unwrap();
+        assert!(!tx.tx_bytes().is_empty());
+        tx.shutdown();
+        // shutdown 清空待发送帧与解码缓冲。
+        assert!(tx.tx_bytes().is_empty());
+        assert!(tx.try_recv_telemetry().unwrap().is_none());
     }
 }

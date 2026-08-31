@@ -173,4 +173,58 @@ mod tests {
         b.record(0, Vec3::new(0.2, 0.0, 0.0));
         assert_eq!(b.len(), 0); // 不保留历史
     }
+
+    #[test]
+    fn reset_clears_everything() {
+        let mut b = Backtracker::new(10, 1.0);
+        for i in 0..5 {
+            b.record(0, Vec3::new(i as f32, 0.0, 0.0));
+        }
+        assert_eq!(b.len(), 5);
+        b.reset();
+        assert_eq!(b.len(), 0);
+        assert!(b.is_empty());
+        assert_eq!(b.mode(), BacktrackMode::Recording);
+        // 重置后可重新记录。
+        b.record(0, Vec3::new(0.0, 0.0, 0.0));
+        assert_eq!(b.len(), 1);
+    }
+
+    #[test]
+    fn trail_returns_chronological() {
+        let mut b = Backtracker::new(10, 0.0);
+        for i in 0..3 {
+            b.record(0, Vec3::new(i as f32, 0.0, 0.0));
+        }
+        let t = b.trail();
+        assert_eq!(t.len(), 3);
+        assert_eq!(t[0].x, 0.0);
+        assert_eq!(t[2].x, 2.0);
+    }
+
+    #[test]
+    fn rewind_reaches_home_mode() {
+        let mut b = Backtracker::new(10, 1.0);
+        for i in 0..3 {
+            b.record(0, Vec3::new(i as f32, 0.0, 0.0));
+        }
+        b.start_rewind();
+        // next_rewind_target 按"最近→最旧"逐点返回全部面包屑：2, 1, 0。
+        assert_eq!(b.next_rewind_target(), Some(Vec3::new(2.0, 0.0, 0.0)));
+        assert_eq!(b.mode(), BacktrackMode::Rewinding);
+        assert_eq!(b.next_rewind_target(), Some(Vec3::new(1.0, 0.0, 0.0)));
+        assert_eq!(b.next_rewind_target(), Some(Vec3::new(0.0, 0.0, 0.0)));
+        assert_eq!(b.next_rewind_target(), None);
+        assert_eq!(b.mode(), BacktrackMode::Home);
+    }
+
+    #[test]
+    fn start_rewind_on_empty_crumbs() {
+        let mut b = Backtracker::new(10, 1.0);
+        let path = b.start_rewind();
+        assert!(path.is_empty());
+        // 空轨迹回溯立即 Home。
+        assert_eq!(b.next_rewind_target(), None);
+        assert_eq!(b.mode(), BacktrackMode::Home);
+    }
 }

@@ -89,14 +89,13 @@ impl RrtPlanner {
                 )
             };
 
-            // 最近节点。
-            let nearest = (0..nodes.len())
-                .min_by(|&a, &b| {
-                    dist2((nodes[a].0, nodes[a].1), (sx, sy))
-                        .partial_cmp(&dist2((nodes[b].0, nodes[b].1), (sx, sy)))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .unwrap();
+            // 最近节点。`nodes` 恒包含起点（非空），因此 min_by 必有结果；
+            // 仍用 `?` 防御，避免任何潜在空集合 panic。
+            let nearest = (0..nodes.len()).min_by(|&a, &b| {
+                dist2((nodes[a].0, nodes[a].1), (sx, sy))
+                    .partial_cmp(&dist2((nodes[b].0, nodes[b].1), (sx, sy)))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })?;
 
             let (nx, ny, _) = nodes[nearest];
             // 向采样点扩展一步。

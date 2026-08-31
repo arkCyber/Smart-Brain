@@ -75,3 +75,48 @@ impl ToolCall {
         self.arguments.get(key).map(|s| s.as_str()).unwrap_or("")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_role_constructors() {
+        let m = Message::system("sys");
+        assert_eq!(m.role, Role::System);
+        assert_eq!(m.content, "sys");
+
+        let m = Message::user("你好");
+        assert_eq!(m.role, Role::User);
+        assert_eq!(m.content, "你好");
+
+        let m = Message::assistant("ok");
+        assert_eq!(m.role, Role::Assistant);
+
+        let m = Message::tool_result("id-1", "42");
+        assert_eq!(m.role, Role::Tool);
+        assert_eq!(m.content, "[tool:id-1] 42");
+    }
+
+    #[test]
+    fn tool_call_arg_lookup() {
+        let mut args = HashMap::new();
+        args.insert("goal".to_string(), "10.0".to_string());
+        let tc = ToolCall::new("c1", "move", args);
+        assert_eq!(tc.id, "c1");
+        assert_eq!(tc.name, "move");
+        assert_eq!(tc.arg("goal"), "10.0");
+        // 缺失参数返回空字符串。
+        assert_eq!(tc.arg("missing"), "");
+    }
+
+    #[test]
+    fn role_equality_and_clone() {
+        assert_eq!(Role::User, Role::User);
+        assert_ne!(Role::System, Role::Tool);
+        let a = Message::user("x");
+        let b = a.clone();
+        assert_eq!(a.content, b.content);
+        assert_eq!(a.role, b.role);
+    }
+}

@@ -88,3 +88,80 @@ pub trait CommBackend: Send + Sync {
     /// 声明一个可查询的“计算/服务”，在 `get` 时被触发。
     fn declare_queryable(&self, key: &str, handler: QueryHandler) -> Result<QueryableHandle>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_core::time::Timestamp;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    #[test]
+    fn subscription_recv_try_recv_and_key() {
+        let (tx, rx) = std::sync::mpsc::channel::<Sample>();
+        let sub = Subscription::new("sensor/temp".to_string(), rx);
+        assert_eq!(sub.key(), "sensor/temp");
+        // 无数据 -> try_recv 失败。
+        assert!(sub.try_recv().is_err());
+        // 发送一条 -> recv / try_recv 均能取到。
+        tx.send(Sample::new("sensor/temp", vec![1, 2, 3], 42))
+            .unwrap();
+        let s = sub.recv().unwrap();
+        assert_eq!(s.timestamp, 42);
+        assert_eq!(s.value, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn subscription_recv_timeout() {
+        let (_tx, rx) = std::sync::mpsc::channel::<Sample>();
+        let sub = Subscription::new("a".to_string(), rx);
+        assert!(matches!(
+            sub.recv_timeout(Duration::from_millis(5)),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        ));
+    }
+
+    #[test]
+    fn queryable_handle_key_and_unregister() {
+        let called = Arc::new(AtomicBool::new(false));
+        let flag = called.clone();
+        let handle = QueryableHandle::new(
+            "svc/add".to_string(),
+            Arc::new(move || {
+                flag.store(true, Ordering::SeqCst);
+            }),
+        );
+        assert_eq!(handle.key(), "svc/add");
+        assert!(!called.load(Ordering::SeqCst));
+        handle.unregister();
+        assert!(called.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn queryable_handle_drop_auto_unregisters() {
+        // 用 Mutex 包裹计数，跨 Drop 检查自动注销。
+        let count = Arc::new(Mutex::new(0u32));
+        let inner = count.clone();
+        {
+            let _handle = QueryableHandle::new(
+                "svc/x".to_string(),
+                Arc::new(move || {
+                    *inner.lock().unwrap() += 1;
+                }),
+            );
+            assert_eq!(*count.lock().unwrap(), 0);
+        } // 这里 Drop
+        assert_eq!(*count.lock().unwrap(), 1, "Drop 应自动注销一次");
+    }
+
+    #[test]
+    fn sample_and_reply_constructors() {
+        let s = Sample::new("k", vec![9], Timestamp::default());
+        assert_eq!(s.key, "k");
+        assert_eq!(s.value, vec![9]);
+        let r = Reply::new("k", vec![8]);
+        assert_eq!(r.key, "k");
+        assert_eq!(r.value, vec![8]);
+    }
+}

@@ -27,9 +27,41 @@ pub struct InferenceOutput {
 }
 
 impl InferenceOutput {
+    /// 取第 `row` 行的第 `col` 个元素（**软失效**版本）。
+    ///
+    /// 越界（行/列超出 `rows`/`cols`，或索引超出底层数据）时返回
+    /// [`BrainError::Inference`] 错误而非 panic，便于在推理下游把坏数据当作
+    /// 一次可恢复的失败处理（日志告警 / 丢弃该帧 / 降级），而不至于让整个
+    /// “大脑”进程崩溃。`at()` 是基于此的快速失败便捷封装。
+    pub fn try_at(&self, row: usize, col: usize) -> Result<f32> {
+        if row >= self.rows || col >= self.cols {
+            return Err(BrainError::Inference(format!(
+                "inference output ({row},{col}) outside shape {}x{}",
+                self.rows, self.cols
+            )));
+        }
+        // 用 checked 运算避免极端入参下 `row * cols` 溢出。
+        let idx = row
+            .checked_mul(self.cols)
+            .and_then(|v| v.checked_add(col))
+            .ok_or_else(|| BrainError::Inference("inference output index overflow".into()))?;
+        self.data.get(idx).copied().ok_or_else(|| {
+            BrainError::Inference(format!(
+                "inference output index {idx} out of bounds ({})",
+                self.data.len()
+            ))
+        })
+    }
+
     /// 取第 `row` 行的第 `col` 个元素。
+    ///
+    /// 越界时给出明确的错误信息并 panic（生产环境宁可快速失败也不返回静默错误数据）。
+    /// 若希望以错误而非 panic 的方式处理越界，请使用 [`Self::try_at`]。
     pub fn at(&self, row: usize, col: usize) -> f32 {
-        self.data[row * self.cols + col]
+        match self.try_at(row, col) {
+            Ok(v) => v,
+            Err(e) => panic!("{e}"),
+        }
     }
 }
 
@@ -236,5 +268,114 @@ impl ModelBackend for OnnxModelBackend {
 
     fn name(&self) -> &str {
         "onnx"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn inference_input_new() {
+        let i = InferenceInput::new(vec![1.0, 2.0], vec![1, 1, 1, 2]);
+        assert_eq!(i.data.len(), 2);
+        assert_eq!(i.shape, vec![1, 1, 1, 2]);
+    }
+
+    #[test]
+    fn inference_output_at_and_bounds() {
+        // 2 行 3 列。
+        let o = InferenceOutput {
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            rows: 2,
+            cols: 3,
+        };
+        assert_eq!(o.at(0, 0), 1.0);
+        assert_eq!(o.at(1, 2), 6.0);
+        // 越界应 panic 而非返回错误数据。
+        assert!(std::panic::catch_unwind(|| o.at(5, 5)).is_err());
+    }
+
+    #[test]
+    fn try_at_valid_returns_ok_and_matches_at() {
+        let o = InferenceOutput {
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            rows: 2,
+            cols: 3,
+        };
+        // 软失效版本在有效访问上与 at() 一致。
+        assert_eq!(o.try_at(0, 0).unwrap(), o.at(0, 0));
+        assert_eq!(o.try_at(1, 2).unwrap(), 6.0);
+    }
+
+    #[test]
+    fn try_at_out_of_shape_is_err_not_panic() {
+        let o = InferenceOutput {
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            rows: 2,
+            cols: 3,
+        };
+        // 行越界。
+        assert!(matches!(o.try_at(2, 0), Err(BrainError::Inference(_))));
+        // 列越界。
+        assert!(matches!(o.try_at(0, 3), Err(BrainError::Inference(_))));
+        // 行、列同时越界。
+        assert!(matches!(o.try_at(5, 5), Err(BrainError::Inference(_))));
+        // 软失效：全程不应 panic。
+    }
+
+    #[test]
+    fn try_at_out_of_data_is_err() {
+        // 形状声明 2x4=8，但底层数据只有 6 个 => 形状内、数据外。
+        let o = InferenceOutput {
+            data: vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+            rows: 2,
+            cols: 4,
+        };
+        let err = o.try_at(1, 3).unwrap_err();
+        assert!(matches!(err, BrainError::Inference(_)));
+        assert!(err.to_string().contains("out of bounds"));
+    }
+
+    #[test]
+    fn try_at_index_overflow_is_err() {
+        let o = InferenceOutput {
+            data: vec![1.0, 2.0, 3.0],
+            rows: usize::MAX,
+            cols: 2,
+        };
+        // row*cols 会溢出 usize => 返回错误而非 panic/包裹。
+        assert!(matches!(
+            o.try_at(usize::MAX - 1, 0),
+            Err(BrainError::Inference(_))
+        ));
+    }
+
+    #[test]
+    fn mock_backend_rejects_infer_before_load() {
+        let mut b = MockModelBackend::new();
+        let input = InferenceInput::new(vec![0.0; 6], vec![1, 1, 1, 6]);
+        assert!(matches!(b.infer(&input), Err(BrainError::Inference(_))));
+        assert_eq!(b.name(), "mock");
+    }
+
+    #[test]
+    fn mock_backend_load_then_infer() {
+        let mut b = MockModelBackend::new();
+        b.load("models/mock.onnx").unwrap();
+        let input = InferenceInput::new(vec![0.0; 6], vec![1, 1, 1, 6]);
+        let out = b.infer(&input).unwrap();
+        assert_eq!(out.rows, 1);
+        assert_eq!(out.cols, 6);
+        // [class_id, confidence, cx, cy, w, h]
+        assert_eq!(out.at(0, 0), 0.0);
+        assert_eq!(out.at(0, 1), 0.95);
+        assert_eq!(out.at(0, 2), 0.5);
+    }
+
+    #[test]
+    fn mock_backend_default() {
+        let b = MockModelBackend::default();
+        assert_eq!(b.name(), "mock");
     }
 }

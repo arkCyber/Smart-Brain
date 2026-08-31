@@ -117,4 +117,77 @@ mod tests {
         assert_eq!(j, "\"Quadruped\"");
         assert_eq!(RobotKind::Manipulator.as_str(), "manipulator");
     }
+
+    #[test]
+    fn all_kind_as_str_and_serde() {
+        let all = [
+            RobotKind::Aerial,
+            RobotKind::Quadruped,
+            RobotKind::Humanoid,
+            RobotKind::Wheeled,
+            RobotKind::Car,
+            RobotKind::Manipulator,
+            RobotKind::Underwater,
+            RobotKind::SurfaceVessel,
+        ];
+        let names = [
+            "aerial",
+            "quadruped",
+            "humanoid",
+            "wheeled",
+            "car",
+            "manipulator",
+            "underwater",
+            "surface_vessel",
+        ];
+        for (k, n) in all.iter().zip(names) {
+            assert_eq!(k.as_str(), n, "kind={k:?}");
+            // serde 往返。
+            let j = serde_json::to_string(k).unwrap();
+            assert_eq!(serde_json::from_str::<RobotKind>(&j).unwrap(), *k);
+        }
+    }
+
+    #[test]
+    fn base_pose_new_zeroes_velocities() {
+        let p = Pose::from_translation(Vec3::new(1.0, 2.0, -3.0));
+        let bp = BasePose::new(p);
+        assert_eq!(bp.pose.position, Vec3::new(1.0, 2.0, -3.0));
+        assert_eq!(bp.linear_vel, Vec3::ZERO);
+        assert_eq!(bp.angular_vel, Vec3::ZERO);
+    }
+
+    #[test]
+    fn body_state_new_defaults() {
+        let bs = BodyState::new(RobotKind::Humanoid);
+        assert_eq!(bs.timestamp, 0);
+        assert_eq!(bs.kind, RobotKind::Humanoid);
+        assert_eq!(bs.base.linear_vel, Vec3::ZERO);
+        assert!(bs.joints.is_empty());
+        assert!(bs.contacts.is_empty());
+        assert_eq!(bs.battery_pct, 100.0);
+    }
+
+    #[test]
+    fn body_state_serde_roundtrip() {
+        let mut bs = BodyState::new(RobotKind::Wheeled);
+        bs.timestamp = 7;
+        bs.battery_pct = 55.0;
+        bs.joints.push(JointState {
+            name: "wheel".into(),
+            position: 1.0,
+            velocity: 0.5,
+            effort: 2.0,
+        });
+        bs.contacts.push(ContactState {
+            frame: "ground".into(),
+            in_contact: true,
+            force: 10.0,
+        });
+        let j = serde_json::to_string(&bs).unwrap();
+        let back: BodyState = serde_json::from_str(&j).unwrap();
+        assert_eq!(back, bs);
+        assert_eq!(back.battery_pct, 55.0);
+        assert_eq!(back.joints[0].velocity, 0.5);
+    }
 }

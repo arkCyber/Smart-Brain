@@ -20,14 +20,16 @@
 | 4. AI 智能与感知层 | 视觉SLAM / 避障 / 目标跟踪推理 | `brain-perception`（推理后端抽象 + 流水线） |
 | 3. 决策/中间件层 | 数据总线 / 状态机 / 行为树 | `brain-middleware`（话题总线）、`brain-state`（状态机+看门狗）、`brain-behavior-tree`（行为树） |
 | 3. 统一通信层 | **Zenoh 风格：Pub/Sub + Store/Query + Compute** | `brain-zenoh`（统一通信后端，可切换真实 zenoh） |
-| 4. 闭环自主导航 | 感知→建图→规划→驱动→回溯 | `brain-autopilot`（2D 世界自主探索/避障仿真） |
+| 4. 闭环自主导航 | 感知→建图→规划→驱动→回溯 | `brain-autopilot`（2D 自主探索/避障 + **汽车闭环** + **水面艇闭环 + AIS/COLREGS**） |
 | 4. Agent/LLM 思考层 | 工具调用 + 感知→推理→控制循环 | `brain-agent`（Agent + MockLLM，Rig 风格） |
 | 3.5 具身抽象层 | **身体无关的机器人接口** | `brain-robot`（RobotKind / BodyState / EffectorCommand / RobotBody / CarBody / BoatBody） |
+| 3.5 步态/全身控制层 | 步态相位、足端轨迹、速度→足端落点 | `brain-locomotion`（Gait / FootTrajectory / LocomotionController / **WBC** / **足-地接触动力学**） |
 | 3.5 运动学层 | 正/逆运动学、雅可比、**车辆运动学** | `brain-kinematics`（FK/IK、四足/机械臂/人形、自行车/Ackermann 模型） |
 | 3.5 室内空间感知 | 无 GPS 定位 + 3D 占据网格 + 局部避障 + 室内任务 | `brain-odometry`（VIO）、`brain-mapping`（Voxel Grid）、`brain-planning`（A*/DWA/Ackermann-DWA/Dubins/Reeds-Shepp）、`brain-nav`（探索/回溯）、`brain-ipc`（环形缓冲） |
 | 2. 硬件接口层 | 与小脑（飞控）通信 | `brain-transport`（串口/UDP/mock） |
 | 基础 | 通用原语 | `brain-core`（错误/配置/时钟/数学） |
 | 装配 | 主程序 | `brain-node`（把各层串成闭环） |
+| 仿真 | 可插拔仿真后端（Gazebo/AirSim-agnostic） | `brain-sim`（`Simulator` trait + `MockSimulator`） |
 
 **大脑 / 小脑解耦**：`brain-transport` 的 `FcuTransport` trait 是大脑唯一访问
 飞控的入口。大脑只下发高层意图（`Command`），姿态稳定由小脑（STM32/Pixhawk）
@@ -44,7 +46,7 @@ cd Smart-Brain
 # 构建整个 workspace（默认无系统级依赖，开箱即用）
 cargo build
 
-# 运行全部单元测试（236 项）
+# 运行全部单元测试（405 项）
 cargo test
 
 # 运行完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面
@@ -62,6 +64,25 @@ cargo run -p brain-node
 UDP/mock 传输）与 `safety`（围栏/电量/pre-arm 阈值）等配置。真机部署时复制
 `config.example.json` 为 `config.json` 并按需修改即可（`config.json` 已被
 `.gitignore` 忽略，避免提交本地私有配置）。
+
+**运行单个 crate 的示例**：每个库 crate 都配有 `examples/`（最小可运行示例）与
+`README.md`（用途 / 所属层 / 核心 API / 用法 / 依赖），可用
+`cargo run -p <crate> --example <name>` 单独演示：
+
+```bash
+cargo run -p brain-core --example basic        # 配置加载 + 数学原语
+cargo run -p brain-ipc --example ring          # 零分配环形缓冲
+cargo run -p brain-zenoh --example pubsub      # Zenoh 三支柱：Pub/Sub + Store/Query + Compute
+cargo run -p brain-planning --example astar    # A* 避障规划
+cargo run -p brain-agent --example agent       # Agent 工具调用闭环
+cargo run -p brain-autopilot --example ais_colregs   # 水面艇：AIS → 局部坐标 → COLREGS 避让
+cargo run -p brain-locomotion --example dynamic_contact  # 足式：接触 + 全身动力学力矩
+# …每个 crate 的示例见其 README
+```
+
+**应用案例**（跨 crate 组合的真实场景）集中在 `brain-node`：`cargo run -p brain-node`
+跑通"起飞→巡航→发现并跟踪→降落"完整任务闭环，其余 21 段演示见
+`crates/brain-node/README.md`。
 
 示例输出：
 
@@ -82,7 +103,13 @@ heartbeat ok, watchdog armed.
 
 ### brain-core（基础）
 统一错误类型 `BrainError` / `Result`、`BrainConfig`（可 JSON 序列化）、
-单调时间戳。是 workspace 的“契约底座”，零外部系统依赖。
+单调时间戳，以及**可注入时钟**（`Clock` trait：`SystemClock`/`ManualClock`）
+与**真正单调计时器** `Stopwatch`。内置 **NTP 风格时间同步**（`TimeSync`/`SyncSample`/
+`SyncedClock`/`SyncDriver`）：四时间戳握手估计时钟偏移与往返时延，滑动窗口中位数
+滤波剔除抖动/异常 RTT，带**同步健康判定**（`is_synced`/`is_stale`，可做看门狗时效
+检查）与**传输无关的自动握手驱动**（`SyncExchange` trait，可对接 UDP/串口/Zenoh），
+把远端（飞控/服务器）参考时间统一同步到本地。是 workspace 的
+“契约底座”，零外部系统依赖。
 
 ### brain-message（通信协议）
 仿 MAVLink 定义遥测（姿态/GPS/电池）与指令（模式 + 目标）消息，全部可
@@ -147,6 +174,47 @@ Humanoid/Wheeled/**Car**/Manipulator/Underwater/**SurfaceVessel**）、通用 `B
 `BicycleModel`/`BicycleState`（自行车/Ackermann 模型：轴距、转向限位与转向速率、
 最小转弯半径、速率受限的 `step` 积分、速度↔转角换算），是汽车导航的运动学契约。
 
+### brain-locomotion（步态与全身运动控制层）
+面向四足/双足/任意足式机器人的“动作生成”层，把“大脑”的高层运动意图
+（线速度 + 角速度 + 期望身高）转换为**逐腿足端落点**与**躯干姿态目标**，
+供下游 `brain-kinematics` 的 IK 求解关节角、驱动 `brain-robot` 的 `RobotBody`。
+- `Gait`：周期步态相位生成（Stand/Walk/Trot/Run），标准四足相位表（对角
+  同相）与双足反相，输出逐腿相位与摆动标志；`duty_factor` 决定支撑/摆动占比。
+- `FootTrajectory`：足端轨迹（支撑相随身体后扫 + 摆动相正弦抬升前摆），
+  无突变、可解析、可测。
+- `LocomotionController`：速度指令 → 逐腿足端落点 + 躯干前倾（加速前倾/减速
+  后仰）+ 转向方向提示；并输出机体系**绝对足端目标** `foot_targets`。
+- `LegIK`：平面双连杆腿部逆运动学（`solve`/`solve_from_hip`），把足端落点
+  解析为 `[髋俯仰, 膝]` 关节角，含可达性错误处理；并含**几何雅可比**
+  （`jacobian`）与**静力传递**（`static_torques`，`τ = Jᵀ·f`，足端力 → `[髋, 膝]`
+  关节力矩）。
+- `WholeBodyController`（**全身控制 WBC**）：把**躯干位姿命令**（高度 + roll/pitch/yaw
+  + 重心横向偏移）+ **逐足体重分配**解析为每条腿的关节角目标与足底法向力向量；
+  用 `Pose::inverse_transform_point` 做世界→机体逆变换、`LegIK` 求角、按权重分摊体重
+  （含 NaN/数量不一致/IK 不可达/权重非正等健壮性校验）。并向下游**静力学下沉**：
+  `WholeBodyTarget::trunk_wrench`（Σ足底力 + Σ r×F 的躯干合力/合力矩，可做静态平衡与
+  防倾覆判定）、`WholeBodyController::joint_torques`（逐足力 → 各腿关节力矩）。
+- `LegDynamics`（**逆/正动力学**）：`inverse_dynamics`（平面 Recursive Newton-Euler，
+  给定 q/q̇/q̈、足端外力、重力 → `[髋, 膝]` 关节力矩，含惯量/科氏/离心/重力，用于
+  力矩前馈、负载估计、超限校验）与 `forward_dynamics`（其逆：给定力矩求 q̈，经
+  M(q) 与偏置项 `b = C·q̇+g+Jᵀf` 解析求解 `M·q̈ = τ−b`，用于正向仿真）。
+  经静态/重力/质量矩阵/虚功投影/能量/正逆回环多重复核。
+- `ContactModel`（**足-地接触动力学**）：弹簧-阻尼地面反力 `F = k·x − c·ẋ`（穿透深度 +
+  下压速度 → 法向支持力，钳制只推不拉），给出接触状态/穿透/法向力，判断支撑相。
+- `WholeBodyController::dynamic_torques`（**全身动力学力矩**）：在静力学 `joint_torques`
+  之上整合**接触门控**（用 `ContactModel` 判断哪条腿触地）+ **逐腿逆动力学**（计入惯性/
+  科氏/重力），得到支撑腿承力、摆动腿无负载的 `[髋, 膝]` 关节力矩。
+- 与 `brain-sim` 一起构成"步态→IK→关节角"四足行走闭环演示，并演示 WBC 站姿命令
+  （关节角 + 足底力 + 关节力矩 + 躯干合力矩）、RNEA 逆动力学与正向动力学（欧拉积分
+  回环自洽）。
+
+### brain-sim（仿真接入层）
+**可插拔的仿真后端契约** `Simulator`（推进世界/读状态/下发速度指令/测距/
+目标检测/重置），实现同一 trait 即可对接 Gazebo/AirSim/Isaac 或自研物理引擎，
+大脑代码零改动。默认提供确定性进程内 `MockSimulator`（2D 栅格世界 + 速度积分
++ 限速 + 射线测距 + 目标检测 + 碰撞统计），开箱即用、离线可测，是第一阶段
+“在电脑里跑通 90% 闭环”的底座。
+
 ### brain-odometry（室内定位）
 **视觉惯性里程计（VIO）**：替代 GPS 建立厘米级三维局部坐标系。含 IMU 模型与
 积分、针孔相机/深度帧→点云、**多传感器时间戳对齐**（环形缓冲 + 线性插值，
@@ -210,7 +278,13 @@ Rig 风格的"感知→推理→工具调用→控制"循环：`Model` trait（L
 （生成→调用工具→回填结果→直到最终答复）。内置 **RAG**：`Embedder`/`MockEmbedder`
 （确定性嵌入）、`MemoryStore`（向量存储 + 余弦检索）、`RetrieveTool`（检索工具）。
 含边界/压力测试：空计划直出答复、`max_iters=0` 立即报错、`reset` 清历史、30 次
-连续工具调用。真机可把 `MockModel`/`MockEmbedder` 换成 Rig / 端侧小模型与真实嵌入。
+连续工具调用。**真实 HTTP LLM 后端 `HttpModel`**（`--features http-llm`）已就绪：
+用同步 `ureq` 客户端桥接任意 **OpenAI 兼容** `/chat/completions` 端点（OpenAI /
+DeepSeek / Qwen / Ollama / vLLM / LM Studio…），自动识别响应的 `content` 与
+`tool_calls`（含函数调用格式 `{type,function}` 工具定义），让 Agent 真正调用工具、
+多轮生成最终答复——与 `OnnxModelBackend`/`ZenohBackend` 同一"默认离线、feature
+开启接真实后端"策略，自带 5 项离线单测（本地回环 HTTP 服务器验证请求/响应编解码）。
+真机可把 `MockModel`/`MockEmbedder` 换成 `HttpModel`/Rig / 端侧小模型与真实嵌入。
 
 ### brain-autopilot（闭环自主导航）
 把 `brain-mapping`（占据网格/光线投射）、`brain-nav`（前沿探索/面包屑回溯）、
@@ -233,9 +307,17 @@ DWA 局部避障**（采样 `(速度,前轮转角)`，尊重最小转弯半径�
 前进/倒车与满舵，漂移超限自动重规划），从而以任意朝向（含倒车入位）抵达。
 
 另提供**水面艇** `BoatAutopilot`（双差速推进 `(v,ω)`）：差分 DWA 局部避障 + 全局引导、
-每步叠加**水流漂移**（恒定向量 + 时变**潮汐**）、**多点巡航**（`set_track` 依次驶向一串
-航点）、抵达后**逆流定泊保持 / 动力定位**（位置 P 控制 + 水流前馈）。并含 **`Colregs`**
-（COLREGS 会遇避让规则引擎：对遇/交叉/追越 → 让路右转或保向）。
+每步叠加**时变水流**（恒定向量 + 正弦**潮汐** `Tide`，已接入 DWA 路径评估与逆流定泊）、
+**多点巡航**（`set_track` 依次驶向一串航点）、抵达后**逆流定泊保持 / 动力定位**
+（位置 P 控制 + 水流前馈）。并含：
+- **`ais`**（AIS 报文解析）：解码 `!AIVDM` 6-bit 负载（类型 1/2/3 位置报告、18 B 类、
+  5 静态/航次），目标经纬度经 `to_local_offset` 换算局部东/北米偏移，喂给避碰引擎；
+- **`Colregs`**（完整 COLREGS 会遇避让规则引擎）：对遇/交叉/追越 → 让路右转或保向，
+  并支持**能见度受限（Rule 19：双方均须主动让路、安全航速）**与**机动船让帆船**
+  （帆船优先通行权）。
+
+完整链路示例见 `crates/brain-autopilot/examples/ais_colregs.rs`（AIS → 局部坐标 →
+受限能见度避让）。
 
 ### brain-node（主程序）
 把上述模块装配成闭环，驱动一次完整任务演示与 fail-safe 演示，并展示
@@ -255,7 +337,9 @@ async 任务在单一运行时上调度），`swarm_coord_demo` 演示**蜂群 L
 参考架构建议：真机上天前先在电脑里完成 90% 测试。
 
 - **第一阶段 · 原型/仿真**：本工作区已用 mock 飞控 + mock 推理跑通
-  “起飞→巡航→发现目标→跟踪→降落”闭环。下一步可接入 Gazebo/AirSim SITL。
+  “起飞→巡航→发现目标→跟踪→降落”闭环，并新增 `brain-sim`（可插拔 `Simulator`
+  契约 + 确定性 `MockSimulator`）作为仿真底座。下一步可基于 `Simulator` trait
+  接入 Gazebo/AirSim SITL（大脑代码零改动）。
 - **第二阶段 · Rust 底层与中间件**：`brain-transport` 已提供 `SerialTransport`
   （`serial`）与 Linux `CanTransport`（`can`，SocketCAN）；真机在 Jetson/RK3588
   上配置 Ubuntu + RT-Preempt 增强实时性。
@@ -282,18 +366,19 @@ ONNX）已就绪，可据此继续。
 - `brain-robot::MockRobotBody`：任意形态的 SITL 仿真身体（含汽车转向/车轮关节与接地点）。
 - `brain-node/embodiment.rs`：把无人机包装成 `RobotBody` 的适配示例；`car_driving_demo.rs` 演示汽车。
 - **汽车闭环导航**：`brain-planning::AckermannDwaPlanner`（阿克曼局部避障）+ `DubinsPlanner`（圆弧/直线最短路径）+ `ReedsSheppPlanner`（可倒车的掉头/泊车）+ `brain-autopilot::CarAutopilot`（感知→建图→A*/RRT 引导→Dubins 平滑→Ackermann DWA→自行车积分→回溯，支持 `set_goal` 点对点驾驶；`set_goal_pose` + `use_reeds_shepp` 实现**倒车跟随闭环**）。
-- **水面艇闭环导航**：`brain-robot::BoatBody`（双差速推进 `RobotBody`）+ `brain-autopilot::BoatAutopilot`（差分 DWA 导航 + **水流漂移** + **逆流定泊保持/动力定位**）。
+- **水面艇闭环导航**：`brain-robot::BoatBody`（双差速推进 `RobotBody`）+ `brain-autopilot::BoatAutopilot`（差分 DWA 导航 + **时变水流/潮汐** + **逆流定泊保持/动力定位**）+ **AIS 报文解析**（`ais`，`!AIVDM` 解码）+ **完整 COLREGS**（`colregs`：对遇/交叉/追越 + 能见度受限 + 机动船让帆船）。
+- **足-地接触 + 全身动力学**：`brain-locomotion::ContactModel`（弹簧-阻尼地面反力，判断支撑相）+ `WholeBodyController::dynamic_torques`（接触门控 + 逐腿逆动力学的 `[髋,膝]` 力矩），从"躯干位姿命令"一路算到"关节力矩"。
 
 ### 下一步（建议新增/泛化）
 | 目标 | 需要的 crate / 改动 |
 |------|---------------------|
-| 步态/全身控制 | 新增 `brain-control`（或 `brain-locomotion`）：步态相位、足点轨迹、全身(WBC)命令 |
+| ✅ 步态/全身控制 | **已完成**：`brain-locomotion`（步态相位/足端轨迹/速度→足端落点/**腿部 IK**/**全身 WBC 命令**/**静力学：足端力→关节力矩+躯干合力矩**/**逆动力学 RNEA**/**正向动力学：给定力矩求运动（欧拉积分仿真）**/**足-地接触动力学**/**全身动力学力矩 dynamic_torques**）+ `brain-sim`（仿真后端）。剩余：把接触模型接入 `brain-sim` 物理后端、关节力矩超限在线校验 |
 | 通用路径规划 | 已在 `brain-planning` 落地 A*/RRT/DWA/Ackermann-DWA/Dubins/**Reeds-Shepp**，并在 `CarAutopilot` 接入**倒车跟随闭环**；剩余：轨迹生成/平滑、车道/交通灯语义（从 `brain-mission` 的航点泛化） |
 | 泛化消息 | 把 `brain-message` 的飞行专用类型（Attitude/GPS/Mode）迁到 `brain-robot`，飞行模式改由 `RobotKind::Aerial` 的 embodied 后端提供 |
 | 泛化状态机 | `brain-state` 由 `FlightState` 扩展为通用 `RobotState`（站立/行走/操作/抓取） |
 | 泛化行为树 | 把 `drone_nodes` 泛化为通用机器人节点（`Navigate`/`Grasp`/`Manipulate`），飞行节点降级为具体身体的一种 |
 | 传感器 | 增加接触力/IMU/里程计话题类型（已在 `BodyState` 预留 contact） |
-| 水面艇/航海 | 已有 `BoatBody` + `BoatAutopilot`（水流漂移/潮汐/多点巡航/定泊）+ `Colregs`（对遇/交叉/追越）；剩余：时变水流接入 DWA、AIS 报文解析、完整 COLREGS（含能见度受限/机动船让路）、多艇协同 |
+| ✅ 水面艇/航海 | **已完成**：`BoatBody` + `BoatAutopilot`（**时变水流/潮汐已接入 DWA**/多点巡航/定泊）+ `ais`（AIS 报文解析）+ `Colregs`（**完整**：对遇/交叉/追越 + 能见度受限 Rule 19 + 机动船让帆船）。剩余：多艇协同避让（把多个 AIS 目标同时喂给 COLREGS）、扩展 AIS 报文类型（6/24/27）、时变水流多点观测 |
 
 > 审计要点：`brain-core`、`brain-middleware`、`brain-perception`、
 > `brain-state::FailsafeWatchdog`、`brain-behavior-tree`（框架本身）已经是

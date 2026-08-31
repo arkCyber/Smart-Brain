@@ -79,6 +79,17 @@ pub struct FcuConfig {
     pub udp_target: String,
 }
 
+impl Default for FcuConfig {
+    fn default() -> Self {
+        Self {
+            transport: "mock".into(),
+            serial_port: "/dev/ttyS0".into(),
+            baud_rate: 921_600,
+            udp_target: "127.0.0.1:14550".into(),
+        }
+    }
+}
+
 impl Default for BrainConfig {
     fn default() -> Self {
         Self {
@@ -86,12 +97,7 @@ impl Default for BrainConfig {
             heartbeat_period_ms: 10,
             failsafe_timeout_ms: 50,
             tick_period_ms: 20,
-            fcu: FcuConfig {
-                transport: "mock".into(),
-                serial_port: "/dev/ttyS0".into(),
-                baud_rate: 921_600,
-                udp_target: "127.0.0.1:14550".into(),
-            },
+            fcu: FcuConfig::default(),
             safety: SafetyConfig::default(),
         }
     }
@@ -145,6 +151,11 @@ impl BrainConfig {
         if self.fcu.serial_port.is_empty() && self.fcu.transport == "serial" {
             return Err(BrainError::Config(
                 "serial transport requires a non-empty serial_port".into(),
+            ));
+        }
+        if self.fcu.transport == "serial" && self.fcu.baud_rate == 0 {
+            return Err(BrainError::Config(
+                "serial transport requires a non-zero baud_rate".into(),
             ));
         }
         if self.fcu.transport == "udp" && self.fcu.udp_target.is_empty() {
@@ -272,5 +283,30 @@ mod tests {
         let json = serde_json::to_string(&SafetyConfig::default()).unwrap();
         let back: SafetyConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(back.geofence_radius_m, 500.0);
+    }
+
+    #[test]
+    fn fcu_config_default_roundtrips() {
+        let f = FcuConfig::default();
+        assert_eq!(f.transport, "mock");
+        assert_eq!(f.baud_rate, 921_600);
+        // serde 往返。
+        let json = serde_json::to_string(&f).unwrap();
+        let back: FcuConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.serial_port, "/dev/ttyS0");
+    }
+
+    #[test]
+    fn validates_serial_baud_rate() {
+        let cfg = BrainConfig {
+            fcu: FcuConfig {
+                transport: "serial".into(),
+                serial_port: "/dev/ttyUSB0".into(),
+                baud_rate: 0,
+                udp_target: String::new(),
+            },
+            ..BrainConfig::default()
+        };
+        assert!(cfg.validate().is_err());
     }
 }

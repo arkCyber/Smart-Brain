@@ -402,4 +402,71 @@ mod tests {
         let p = flight_permission(&g, &b, Vec3::ZERO, 80.0, true);
         assert_eq!(p, FlightPermission::Allowed);
     }
+
+    #[test]
+    fn geofence_default_contains_origin() {
+        let g = Geofence::default();
+        assert_eq!(g.max_radius_m, 1000.0);
+        assert!(g.contains(Vec3::ZERO));
+        assert!(g.contains(Vec3::new(100.0, 100.0, -100.0)));
+    }
+
+    #[test]
+    fn battery_monitor_new_and_boundaries() {
+        let m = BatteryMonitor::new(30.0, 15.0, 40.0);
+        assert_eq!(m.evaluate(30.0), BatteryAdvisory::RthTrigger);
+        assert_eq!(m.evaluate(15.0), BatteryAdvisory::Critical);
+        assert_eq!(m.evaluate(40.0), BatteryAdvisory::Low);
+        assert_eq!(m.evaluate(40.1), BatteryAdvisory::Nominal);
+    }
+
+    #[test]
+    fn prearm_custom_config_and_is_ok() {
+        // 自定义：不要求 3D、更少卫星、不要求 home。
+        let cfg = PreArmConfig {
+            min_gps_satellites: 4,
+            require_fix3d: false,
+            min_battery_pct: 20.0,
+            require_home: false,
+        };
+        let chk = PreArmCheck::new(cfg);
+        let s = ArmSignals {
+            gps_fix: FixType::Fix2D,
+            gps_satellites: 5,
+            battery_pct: 50.0,
+            home_set: false,
+            watchdog_armed: true,
+            link_connected: true,
+        };
+        let st = chk.evaluate(&s);
+        assert!(st.is_ok());
+        assert!(st.passed);
+    }
+
+    #[test]
+    fn flight_permission_rth_on_low_battery() {
+        let g = Geofence::default();
+        let b = BatteryMonitor::default();
+        // 低电（RTH 阈值内、未到临界）→ 返航。
+        let p = flight_permission(&g, &b, Vec3::ZERO, 25.0, true);
+        assert!(matches!(p, FlightPermission::ReturnHome { .. }));
+    }
+
+    #[test]
+    fn classify_returns_safety_events() {
+        let g = Geofence::new(home(), 100.0, 50.0, 0.0);
+        let b = BatteryMonitor::default();
+        // 越界 → Geofence 事件。
+        assert!(matches!(
+            classify(&g, &b, Vec3::new(200.0, 0.0, -10.0), 90.0),
+            Some(SafetyEvent::Geofence(_))
+        ));
+        // 低电 → Battery 事件。
+        assert!(matches!(
+            classify(&g, &b, Vec3::ZERO, 25.0),
+            Some(SafetyEvent::Battery(BatteryAdvisory::RthTrigger))
+        ));
+        // 一切正常 → 无事件。
+        assert!(classify(&g, &b, Vec3::ZERO, 90.0).is_none());
+    }
 }

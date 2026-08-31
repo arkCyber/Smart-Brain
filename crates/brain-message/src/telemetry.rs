@@ -80,3 +80,57 @@ impl Telemetry {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_at_values() {
+        let t = Telemetry::default_at(123);
+        assert_eq!(t.timestamp, 123);
+        assert_eq!(t.attitude.yaw, 0.0);
+        assert_eq!(t.gps.fix_type, FixType::NoFix);
+        assert_eq!(t.gps.satellites, 0);
+        assert_eq!(t.battery.remaining_pct, 100.0);
+        assert_eq!(t.battery.voltage, 16.8);
+    }
+
+    #[test]
+    fn telemetry_serde_round_trip() {
+        let mut t = Telemetry::default_at(42);
+        t.attitude.roll = 0.1;
+        t.attitude.pitch = -0.2;
+        t.attitude.yaw = std::f32::consts::PI;
+        t.gps.lat = 39.9;
+        t.gps.lon = 116.4;
+        t.gps.alt = 30.0;
+        t.gps.fix_type = FixType::Fix3D;
+        t.gps.satellites = 12;
+        t.battery.remaining_pct = 67.5;
+        t.battery.current = 3.2;
+        t.velocity = Vec3::new(1.0, -1.0, 0.0);
+
+        let json = serde_json::to_string(&t).unwrap();
+        let back: Telemetry = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, t);
+    }
+
+    #[test]
+    fn fix_type_serde_round_trip() {
+        for f in [FixType::NoFix, FixType::Fix2D, FixType::Fix3D] {
+            let json = serde_json::to_string(&f).unwrap();
+            let back: FixType = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, f);
+        }
+    }
+
+    #[test]
+    fn telemetry_json_shape_stable() {
+        let t = Telemetry::default_at(9);
+        let json = serde_json::to_value(&t).unwrap();
+        assert_eq!(json["timestamp"], 9);
+        assert_eq!(json["gps"]["fix_type"], "NoFix");
+        assert_eq!(json["battery"]["remaining_pct"], 100.0);
+    }
+}

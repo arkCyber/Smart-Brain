@@ -19,6 +19,8 @@ members = [
     "crates/brain-zenoh",
     "crates/brain-autopilot",
     "crates/brain-agent",
+    "crates/brain-locomotion",
+    "crates/brain-sim",
     "crates/brain-node",
 ]
 
@@ -47,6 +49,8 @@ brain-nav = { path = "crates/brain-nav" }
 brain-zenoh = { path = "crates/brain-zenoh" }
 brain-autopilot = { path = "crates/brain-autopilot" }
 brain-agent = { path = "crates/brain-agent" }
+brain-locomotion = { path = "crates/brain-locomotion" }
+brain-sim = { path = "crates/brain-sim" }
 
 thiserror = "1.0"
 serde = { version = "1.0", features = ["derive"] }

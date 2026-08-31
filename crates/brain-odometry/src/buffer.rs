@@ -62,17 +62,35 @@ impl<T: Interpolate> TimestampAligned<T> {
             return Err(AlignmentError::InsufficientData);
         }
         for i in 0..n {
-            let (ts, _) = self.buf.get(i).unwrap();
+            // 用安全的 Option 访问代替裸索引：即便环形缓冲的 len/get 在极端
+            // 情况下不一致，也只会返回 InsufficientData 而绝不 panic。
+            let (ts, _) = match self.buf.get(i) {
+                Some(s) => s,
+                None => return Err(AlignmentError::InsufficientData),
+            };
             if *ts >= target {
                 if *ts == target {
-                    return Ok((target, self.buf.get(i).unwrap().1.clone()));
+                    return Ok((
+                        target,
+                        match self.buf.get(i) {
+                            Some((_, v)) => v.clone(),
+                            None => return Err(AlignmentError::InsufficientData),
+                        },
+                    ));
                 }
                 if i == 0 {
                     return Err(AlignmentError::InsufficientData);
                 }
-                let (ts0, v0) = self.buf.get(i - 1).unwrap();
+                let (ts0, v0) = match self.buf.get(i - 1) {
+                    Some(s) => s,
+                    None => return Err(AlignmentError::InsufficientData),
+                };
                 let dt = (target - ts0) as f32 / (*ts - ts0).max(1) as f32;
-                let v = v0.lerp(&self.buf.get(i).unwrap().1, dt);
+                let v1 = match self.buf.get(i) {
+                    Some((_, v)) => v,
+                    None => return Err(AlignmentError::InsufficientData),
+                };
+                let v = v0.lerp(v1, dt);
                 return Ok((target, v));
             }
         }
@@ -136,5 +154,45 @@ mod tests {
     fn insufficient_data() {
         let s = TimestampAligned::<f32>::new(4);
         assert_eq!(s.align(5), Err(AlignmentError::InsufficientData));
+    }
+
+    #[test]
+    fn align_to_both_series() {
+        let mut a = TimestampAligned::<f32>::new(16);
+        let mut b = TimestampAligned::<f32>::new(16);
+        a.push(0, 0.0);
+        a.push(10, 1.0);
+        b.push(0, 100.0);
+        b.push(10, 200.0);
+        let (va, vb) = align_to(&a, &b, 5).unwrap();
+        assert!((va - 0.5).abs() < 1e-4);
+        assert!((vb - 150.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn align_to_insufficient_propagates() {
+        let a = TimestampAligned::<f32>::new(4);
+        let b = TimestampAligned::<f32>::new(4);
+        assert_eq!(align_to(&a, &b, 0), Err(AlignmentError::InsufficientData));
+    }
+
+    #[test]
+    fn align_beyond_last_sample_insufficient() {
+        let mut s = TimestampAligned::<f32>::new(16);
+        s.push(0, 0.0);
+        s.push(10, 1.0);
+        // 目标在最后一个样本之后 -> 无法插值。
+        assert_eq!(s.align(20), Err(AlignmentError::InsufficientData));
+    }
+
+    #[test]
+    fn scalar_lerp() {
+        let mut s = TimestampAligned::<f32>::new(16);
+        s.push(0, 0.0);
+        s.push(100, 1.0);
+        // 直接验证 f32 Interpolate。
+        let (_, v) = s.align(25).unwrap();
+        assert!((v - 0.25).abs() < 1e-4);
+        assert!((0.0f32.lerp(&1.0, 0.5) - 0.5).abs() < 1e-6);
     }
 }

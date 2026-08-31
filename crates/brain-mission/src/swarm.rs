@@ -116,12 +116,86 @@ impl SwarmLink {
 mod tests {
     use super::*;
 
+    fn share(node: &str, seen: bool) -> SwarmShare {
+        SwarmShare::new(node, 123, Vec3::new(1.0, 2.0, -30.0), 0.5, seen, 80.0)
+    }
+
     #[test]
     fn share_roundtrips_json() {
         let share = SwarmShare::new("a1", 123, Vec3::default(), 1.0, true, 80.0);
         let json = SwarmLink::encode(&share).unwrap();
         let back = SwarmLink::decode(&json).unwrap();
         assert_eq!(back.node_id, "a1");
+        assert_eq!(back.timestamp, 123);
         assert!(back.target_seen);
+        assert_eq!(back.battery_pct, 80.0);
+        // 序列化形状稳定。
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["node_id"], "a1");
+        assert_eq!(v["heading"], 1.0);
+    }
+
+    #[test]
+    fn role_serde_roundtrip() {
+        for r in [SwarmRole::Leader, SwarmRole::Follower, SwarmRole::Scout] {
+            let j = serde_json::to_string(&r).unwrap();
+            assert_eq!(serde_json::from_str::<SwarmRole>(&j).unwrap(), r);
+        }
+    }
+
+    #[test]
+    fn link_new_and_role() {
+        let link = SwarmLink::new("n1", SwarmRole::Leader);
+        assert_eq!(link.role(), SwarmRole::Leader);
+        assert!(link.peers().is_empty());
+        assert!(!link.any_peer_target_seen());
+    }
+
+    #[test]
+    fn broadcast_publishes_to_bus() {
+        let link = SwarmLink::new("n1", SwarmRole::Scout);
+        let bus = DataBus::new();
+        let s = share("n1", false);
+        link.broadcast(&s, &bus, 9);
+        let t: std::sync::Arc<brain_middleware::Topic<SwarmShare>> =
+            bus.topic(topics::SWARM_SHARE).unwrap();
+        let got = t.peek().unwrap();
+        assert_eq!(got.node_id, "n1");
+        assert_eq!(t.last_updated(), 9);
+    }
+
+    #[test]
+    fn ingest_keeps_peers_and_caps_at_64() {
+        let mut link = SwarmLink::new("n1", SwarmRole::Leader);
+        // 超过 64 帧应裁剪到最近 64 帧。
+        for i in 0..70 {
+            link.ingest(share(&format!("peer{i}"), i % 3 == 0));
+        }
+        assert_eq!(link.peers().len(), 64);
+        // 应保留最近的（peer6 之后的）。
+        assert_eq!(link.peers().first().unwrap().node_id, "peer6");
+        assert_eq!(link.peers().last().unwrap().node_id, "peer69");
+    }
+
+    #[test]
+    fn any_peer_target_seen() {
+        let mut link = SwarmLink::new("n1", SwarmRole::Leader);
+        assert!(!link.any_peer_target_seen());
+        link.ingest(share("a", false));
+        link.ingest(share("b", true));
+        assert!(link.any_peer_target_seen());
+
+        let mut link2 = SwarmLink::new("n2", SwarmRole::Follower);
+        link2.ingest(share("c", false));
+        assert!(!link2.any_peer_target_seen());
+    }
+
+    #[test]
+    fn ingest_preserves_order() {
+        let mut link = SwarmLink::new("n1", SwarmRole::Follower);
+        link.ingest(share("p1", false));
+        link.ingest(share("p2", false));
+        let ids: Vec<&str> = link.peers().iter().map(|s| s.node_id.as_str()).collect();
+        assert_eq!(ids, vec!["p1", "p2"]);
     }
 }
