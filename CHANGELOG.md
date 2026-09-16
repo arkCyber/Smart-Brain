@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+_暂无变更（下一版本计划见 [docs/ROADMAP.md](docs/ROADMAP.md)）。_
+
+## [0.1.0] - 2026-09-16
+
+> 首个公开发布：用 **Rust** 编写的无人机 / 汽车 / 水面艇 / 足式机器人「AI 大脑」。
+> 默认在 **SITL（mock 飞控）** 下开箱可编译、可运行、可测试；硬件与网络后端
+> （`serial` / `can` / `onnx` / `http-llm` / `ollama` / `hermes` / `real-zenoh` /
+> `async`）全部为 feature 门控，默认构建零系统依赖。
+
 ### Fixed
 - **CI Actions 运行时告警**：把工作流依赖升级到 Node 24 兼容版本
   （`actions/checkout` v4→**v7**、`actions/upload-artifact` v4→**v7**、
@@ -573,9 +582,14 @@ All notable changes to this project are documented in this file.
 - `.gitignore` now excludes user-generated `config.json`.
 
 
-## [0.1.0] - Initial
+### 初始骨架（0.1.0 之前的开发历史）
 
 - Workspace skeleton ("AI 大脑") with drone-focused SITL loop, telemetry/command
   framing, state machine + failsafe watchdog, perception pipeline, behavior
   tree, mission/swarm, Zenoh transport, agent + RAG, VIO/odometry, indoor
   mapping/A*/DWA navigation.
+
+<!-- 版本对比链接（Keep a Changelog 约定） -->
+[Unreleased]: https://github.com/arkCyber/Smart-Brain/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/arkCyber/Smart-Brain/releases/tag/v0.1.0
+
