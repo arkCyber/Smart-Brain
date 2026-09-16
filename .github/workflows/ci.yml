@@ -52,6 +52,14 @@ jobs:
             grep -E "FAILED|panicked at|^---- |^failures:|^test result: FAILED|assertion" /tmp/test.log | head -80 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+          # 同时以 annotation 的形式暴露失败用例：无需下载日志，直接在 Checks 页面
+          # 与 REST API（GET /check-runs/{id}/annotations）即可看到是哪条测试失败。
+          grep -E "^---- .* stdout ----|^test .* FAILED|panicked at|^failures:" /tmp/test.log \
+            | head -40 \
+            | tr -d '\r' \
+            | while IFS= read -r line; do
+                echo "::error title=test-failure::$(printf '%s' "$line" | cut -c1-400)"
+              done
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
