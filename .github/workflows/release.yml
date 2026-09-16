@@ -53,7 +53,7 @@ jobs:
             || sha256sum "dist/${NAME}.tar.gz" > "dist/${NAME}.tar.gz.sha256"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: smart-brain-${{ matrix.target }}
           path: dist/*.tar.gz*
