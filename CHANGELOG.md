@@ -4,6 +4,35 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **依赖安全（RustSec 审计红灯）**：升级 `rustls` 0.23.43→**0.23.45**
+  （RUSTSEC-2026-0285：TLS 1.3 握手跨加密层校验缺陷）与 `serialport`
+  4.10.0→**4.10.1**（原版本已被 crates.io yank）；新增 **`.cargo/audit.toml`**，
+  对仅由可选 `real-zenoh` feature 间接引入、上游暂无修复的两条公告
+  （RUSTSEC-2026-0041 `lz4_flex`、RUSTSEC-2023-0071 `rsa`）显式豁免并注明跟踪方式
+  （评估记录见 `SECURITY.md`）。`cargo audit` 现在通过（仅剩 2 条未维护类提示）。
+- **CI — 审计与测试失败难以定位**：`audit` job 改为直接运行 `cargo audit`
+  （`taiki-e/install-action` 预编译安装）并把报告写入 **job summary**；CI 的
+  `Run tests` 步骤改为 `tee` 到日志并在失败时把失败用例/panic 摘录写入 job summary，
+  无需下载日志即可排查 Linux 与 macOS 的行为差异。
+- **`brain-node` — 并行流水线测试存在竞态**：`parallel_pipeline_runs_all_threads`
+  以 6ms 窗口断言“决策线程观测到感知线程发布的 Locked”，在共享/慢速 CI runner 上
+  会因线程调度抖动偶发失败；改为 200 个 1ms 周期（≈200ms 预算）并在断言中输出计数，
+  消除偶发失败（本地与 Linux 目标均验证）。
+- **`brain-transport` — `can` feature 在 Linux 上无法编译（CI 长期红灯的根因）**：
+  SocketCAN 后端按旧版 API 编写（`CanSocket::open`/`CanFrame::new`/`write_frame`/
+  `read_frame`/`id()`），在 `socketcan` 3.x 上均不存在，且该模块被
+  `cfg(all(feature = "can", target_os = "linux"))` 门控，macOS 本地构建看不到问题。
+  现按 socketcan 3.x 修正：引入 `Socket`/`Frame`/`EmbeddedFrame` trait，
+  发送用 `CanDataFrame::from_raw_id`，接收用 `raw_id()`（去掉 EFF/RTR/ERR 标志）
+  与 `data()`；顺手消除 `clippy::while_let_loop`。
+  验证：`cargo clippy -p brain-transport --features can --all-targets
+  --target x86_64-unknown-linux-gnu -- -D warnings` 通过。
+- **CI — `serial` feature 在 Linux 上缺少系统依赖**：`serialport` 通过 pkg-config
+  探测系统 libudev，ubuntu runner 默认未安装 `libudev-dev`；已在
+  `feature-backends` job 增加 `Install system dependencies` 步骤
+  （`libudev-dev` + `pkg-config`；`socketcan` 3.x 为纯 Rust，无需系统库）。
+
 ### Added
 - **项目工程化 / GitHub 标准化（面向开源发布）**：
   - 新增 **`rust-toolchain.toml`**（固定 stable + `rustfmt`/`clippy`），保证本地与 CI

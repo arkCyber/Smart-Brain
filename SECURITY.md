@@ -41,6 +41,23 @@
 
 在修复发布前，请对漏洞细节保密；我们会在修复版本中同步发布安全说明。
 
+## 已知的第三方公告（已评估）
+
+`cargo audit` 在 CI 中运行（见 `.github/workflows/audit.yml`）。当前有两条公告被
+**显式豁免**（配置见 [`.cargo/audit.toml`](.cargo/audit.toml)），原因是它们
+**仅由可选的 `real-zenoh` feature 间接引入**、上游暂无可用修复，且不在默认构建中：
+
+| 公告 | 依赖 | 影响 | 处置 |
+|------|------|------|------|
+| RUSTSEC-2026-0041 | `lz4_flex` 0.10（经 `zenoh-transport`） | 解压非法数据时可能读取未初始化内存 | 等待 zenoh 升级到 `lz4_flex` 0.11+ 后移除豁免 |
+| RUSTSEC-2023-0071 | `rsa` 0.9.10（经 `zenoh`） | Marvin Attack（RSA 解密时序侧信道） | 上游标注 “No fixed upgrade is available”；仅在使用 zenoh 加密链路时涉及 |
+
+另有两条**未维护**类提示（`paste`、`rustls-pemfile`，同为 zenoh 生态间接依赖）：
+不阻断构建，保留在审计输出中以便跟踪。
+
+> 如果你在部署中启用 `real-zenoh` 并对外暴露加密链路，请自行评估上述风险并优先
+> 升级 zenoh 到已修复版本（升级后应同时删除 `.cargo/audit.toml` 中的豁免项）。
+
 ## 部署方必须注意的安全边界
 
 本项目是**自主机器人大脑**，请务必记住以下与安全相关的设计约束：

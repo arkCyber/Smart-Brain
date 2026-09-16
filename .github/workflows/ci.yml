@@ -34,8 +34,24 @@ jobs:
       - name: Build
         run: cargo build --workspace --locked
 
+      # 把测试输出同时写文件：失败时在 job summary 中摘录失败用例与 panic 信息，
+      # 便于（无需下载日志即可）快速定位 Linux 与 macOS 的行为差异。
       - name: Run tests
-        run: cargo test --workspace --locked
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --workspace --locked 2>&1 | tee /tmp/test.log
+
+      - name: Report failures in job summary
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "### ❌ 测试失败摘录（Linux）"
+            echo '```text'
+            grep -E "FAILED|panicked at|^---- |^failures:|^test result: FAILED|assertion" /tmp/test.log | head -80 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
@@ -84,6 +100,13 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # 系统依赖：`serialport` 在 Linux 上通过 pkg-config 探测系统 libudev，
+      # ubuntu runner 默认不含 libudev-dev，必须显式安装（否则 serial 步骤失败）。
+      # 说明：socketcan 3.x 为纯 Rust 实现（netlink），无需系统 libsocketcan。
+      - name: Install system dependencies (libudev for serial)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libudev-dev pkg-config
       # ort 用 load-dynamic：编译期不下载 onnxruntime，仅验证代码可编译。
       - name: Build perception (onnx)
         run: cargo clippy -p brain-perception --features onnx --all-targets -- -D warnings

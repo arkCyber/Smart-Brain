@@ -155,8 +155,12 @@ mod tests {
 
     #[test]
     fn parallel_pipeline_runs_all_threads() {
+        // 周期数要足够长：这里是“两个线程 + 跨线程数据流”的断言，若窗口过短，
+        // 在共享/慢速 CI runner 上可能因调度抖动出现“决策线程尚未观察到 Locked”
+        // 的偶发失败（本地快机不易复现）。200 个 1ms 周期 ≈ 200ms 预算，
+        // 远大于感知线程获取锁定（几 ms）所需时间。
         let cfg = ParallelConfig {
-            iterations: 6,
+            iterations: 200,
             infer_period_ms: 1,
             tick_period_ms: 1,
         };
@@ -164,7 +168,13 @@ mod tests {
         let s = pipeline.run();
         assert!(s.perception_ticks > 0, "perception thread should tick");
         assert!(s.decisions > 0, "decision thread should issue commands");
-        assert!(s.locked_seen > 0, "decision should observe a locked target");
+        assert!(
+            s.locked_seen > 0,
+            "decision should observe a locked target (ticks={}, decisions={}, locked={})",
+            s.perception_ticks,
+            s.decisions,
+            s.locked_seen
+        );
     }
 
     #[test]

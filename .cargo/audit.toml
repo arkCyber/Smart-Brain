@@ -1,0 +1,20 @@
+# cargo-audit 配置（RustSec 依赖审计）。
+# `cargo audit` 在项目根目录会自动读取本文件（`.cargo/audit.toml`）。
+# 运行：cargo audit        （CI 见 .github/workflows/audit.yml）
+
+[advisories]
+# 说明：以下两条公告在 Cargo.lock 中**仅由可选的 `real-zenoh` feature 间接引入**
+# （zenoh 1.10 的传输栈），上游暂无可用修复，且不在默认构建/CI 的默认目标中。
+# 保留在此显式豁免并跟踪上游升级；一旦上游修复即应移除本豁免。
+ignore = [
+    # lz4_flex 0.10：解压非法数据可能读取未初始化内存/复用输出缓冲。
+    # 路径：zenoh-transport -> lz4_flex ^0.10（0.11+ 为 semver 不兼容升级，需等上游）。
+    "RUSTSEC-2026-0041",
+    # rsa 0.9.10：Marvin Attack（RSA 解密时序侧信道），上游标注
+    # “No fixed upgrade is available!”；仅在启用 zenoh 加密链路时才会被使用。
+    "RUSTSEC-2023-0071",
+]
+
+# 未维护（unmaintained）类公告不阻断 CI，但保留输出以便跟踪：
+# - RUSTSEC-2024-0436（paste，zenoh 生态间接依赖）
+# - RUSTSEC-2025-0134（rustls-pemfile，zenoh 生态间接依赖）

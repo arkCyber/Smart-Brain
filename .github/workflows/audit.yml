@@ -29,7 +29,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run cargo-audit
-        uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # 使用预编译的 cargo-audit（比 cargo install 快得多）。
+      - name: Install cargo-audit
+        uses: taiki-e/install-action@cargo-audit
+
+      # 审计结果同时写入 job summary：即使不下载日志，也能在 Checks 页面
+      # 直接看到是哪些依赖命中了哪条安全公告（附 RustSec 链接与修复建议）。
+      - name: Run cargo audit
+        shell: bash
+        run: |
+          set +e
+          cargo audit > /tmp/audit.log 2>&1
+          status=$?
+          cat /tmp/audit.log
+          if [ $status -ne 0 ]; then
+            {
+              echo "### 🔐 RustSec 审计未通过"
+              echo ""
+              echo '```text'
+              tail -c 6000 /tmp/audit.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit $status

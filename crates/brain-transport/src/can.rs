@@ -14,6 +14,14 @@
 use brain_core::{BrainError, Result};
 use brain_message::{Command, Telemetry};
 
+// socketcan 3.x 的 trait 需要显式引入才能使用其方法：
+// - `Socket`：`CanSocket::open` / `set_nonblocking` / `read_frame` / `write_frame`
+// - `Frame`：`from_raw_id` / `raw_id`（socketcan 自有 trait，返回不含标志位的原始 ID）
+// - `EmbeddedFrame`（embedded_can::Frame）：`data()` / `dlc()`
+// 用 `as _` 引入以避免与本模块的 `CanFrame` 类型名冲突。
+#[cfg(all(feature = "can", target_os = "linux"))]
+use socketcan::{CanDataFrame, EmbeddedFrame as _, Frame as _, Socket as _};
+
 /// Command 消息的仲裁 ID 基址（低字节为分片序号）。
 pub const CAN_CMD_BASE_ID: u32 = 0x100;
 /// Telemetry 消息的仲裁 ID 基址。
@@ -234,8 +242,10 @@ impl crate::FcuTransport for CanTransport {
                 .as_ref()
                 .ok_or_else(|| BrainError::Transport("can transport closed".into()))?;
             for f in encode_command(cmd)? {
-                let frame = socketcan::CanFrame::new(f.id, f.payload())
-                    .ok_or_else(|| BrainError::Transport("invalid can id".into()))?;
+                // 我们的 CAN ID 均 ≤ 0x7FF（标准帧），`from_raw_id` 会自动按标准 ID 构造。
+                let frame = CanDataFrame::from_raw_id(f.id, f.payload()).ok_or_else(|| {
+                    BrainError::Transport(format!("invalid can id: 0x{:X}", f.id))
+                })?;
                 socket
                     .write_frame(&frame)
                     .map_err(|e| BrainError::Transport(format!("can write: {e}")))?;
@@ -255,20 +265,17 @@ impl crate::FcuTransport for CanTransport {
         #[cfg(all(feature = "can", target_os = "linux"))]
         {
             // 非阻塞读取所有已就绪的帧，增量重组（遇新首帧自动对齐、超上限自动清空）。
+            // 读尽（WouldBlock 等错误）即结束本轮。
             if let Some(socket) = self.socket.as_ref() {
-                loop {
-                    match socket.read_frame() {
-                        Ok(f) => {
-                            if (f.id() & 0x300) == CAN_TELEM_BASE_ID {
-                                let frame = CanFrame::new(f.id(), f.data())?;
-                                if let Some(t) =
-                                    ingest_telemetry_frame(&mut self.pending_telem, frame)?
-                                {
-                                    return Ok(Some(t));
-                                }
-                            }
+                while let Ok(f) = socket.read_frame() {
+                    // `raw_id()` 去掉 EFF/RTR/ERR 标志位，得到原始 11/29 位标识符；
+                    // 高位 0x1xx=Command、0x2xx=Telemetry 由 `& 0x300` 判定。
+                    let raw_id = f.raw_id();
+                    if (raw_id & 0x300) == CAN_TELEM_BASE_ID {
+                        let frame = CanFrame::new(raw_id, f.data())?;
+                        if let Some(t) = ingest_telemetry_frame(&mut self.pending_telem, frame)? {
+                            return Ok(Some(t));
                         }
-                        Err(_) => break, // 无更多数据（含 WouldBlock）
                     }
                 }
             }
