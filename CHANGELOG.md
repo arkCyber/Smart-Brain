@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **`brain-transport` — `udp` 单测在 Linux 上必然失败（CI `build / test / clippy` 长期红灯的根因）**：
+  `udp::tests::send_command_returns_ok` 把对端地址写成 `127.0.0.1:0`，而 Linux 下向
+  端口 0 发送会返回 `EINVAL`（macOS 允许），于是 `send_command(...).unwrap()` panic；
+  该测试因此在本机/ macOS CI 通过、在 Linux CI 必失败。现改为先绑定接收套接字、
+  以其**真实地址**作为对端，并在宽限期内轮询校验命令确实到达（帧编解码 + JSON
+  往返），把“只断言不报错”的空测试变成真正的收发验证。
 - **依赖安全（RustSec 审计红灯）**：升级 `rustls` 0.23.43→**0.23.45**
   （RUSTSEC-2026-0285：TLS 1.3 握手跨加密层校验缺陷）与 `serialport`
   4.10.0→**4.10.1**（原版本已被 crates.io yank）；新增 **`.cargo/audit.toml`**，
@@ -13,8 +19,9 @@ All notable changes to this project are documented in this file.
   （评估记录见 `SECURITY.md`）。`cargo audit` 现在通过（仅剩 2 条未维护类提示）。
 - **CI — 审计与测试失败难以定位**：`audit` job 改为直接运行 `cargo audit`
   （`taiki-e/install-action` 预编译安装）并把报告写入 **job summary**；CI 的
-  `Run tests` 步骤改为 `tee` 到日志并在失败时把失败用例/panic 摘录写入 job summary，
-  无需下载日志即可排查 Linux 与 macOS 的行为差异。
+  `Run tests` 步骤改为 `tee` 日志，失败时把失败用例/panic 摘录写入 job summary，
+  **并把失败用例名以 `::error::` 注解暴露**（Checks 页面与
+  `GET /repos/{owner}/{repo}/check-runs/{id}/annotations` 均可直接看到是哪条测试失败）。
 - **`brain-node` — 并行流水线测试存在竞态**：`parallel_pipeline_runs_all_threads`
   以 6ms 窗口断言“决策线程观测到感知线程发布的 Locked”，在共享/慢速 CI runner 上
   会因线程调度抖动偶发失败；改为 200 个 1ms 周期（≈200ms 预算）并在断言中输出计数，

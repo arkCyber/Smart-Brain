@@ -142,7 +142,20 @@ mod tests {
 
     #[test]
     fn send_command_returns_ok() {
-        let mut t = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:0").unwrap();
+        // 对端必须是**真实存在的端口**：Linux 上向端口 0 发送会返回 EINVAL
+        // （macOS 允许），这曾导致本测试在本机通过、在 Linux CI 失败。
+        // 这里先绑定一个接收套接字，以其实际地址作为对端，并顺带验证命令
+        // 确实到达接收端（帧编解码 + JSON 往返），避免“只断言不报错”的空测试。
+        let recv = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:0").unwrap();
+        let peer = recv
+            .socket
+            .as_ref()
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .to_string();
+
+        let mut t = UdpTransport::connect("127.0.0.1:0", &peer).unwrap();
         let cmd = Command {
             timestamp: 1,
             mode: brain_message::Mode::Cruise,
@@ -150,6 +163,22 @@ mod tests {
         };
         t.send_command(&cmd).unwrap();
         t.shutdown();
+
+        // 在宽限期内轮询接收端，直到解出同一条命令（loopback 通常立即到达）。
+        let deadline = std::time::Instant::now() + Duration::from_millis(500);
+        let mut reader = FrameReader::new();
+        let mut buf = [0u8; 1024];
+        let mut got: Option<Command> = None;
+        while got.is_none() && std::time::Instant::now() < deadline {
+            if let Ok((n, _)) = recv.socket.as_ref().unwrap().recv_from(&mut buf) {
+                for frame in reader.push(&buf[..n]) {
+                    if let Ok(c) = serde_json::from_slice::<Command>(&frame) {
+                        got = Some(c);
+                    }
+                }
+            }
+        }
+        assert_eq!(got, Some(cmd));
     }
 
     #[test]
