@@ -1,0 +1,35 @@
+name: Security audit
+
+# 供应链安全：依赖漏洞扫描（RustSec 数据库）。
+# 与 CI 分离，避免在每次 push 上阻塞开发；每周一固定扫描，并在依赖清单变更时触发。
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/audit.yml"
+  pull_request:
+    paths:
+      - "**/Cargo.toml"
+      - "Cargo.lock"
+  schedule:
+    - cron: "0 22 * * 0" # 每周一 06:00 (Asia/Shanghai)
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: cargo audit (RustSec)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run cargo-audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

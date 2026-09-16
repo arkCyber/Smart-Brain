@@ -5,6 +5,175 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Added
+- **项目工程化 / GitHub 标准化（面向开源发布）**：
+  - 新增 **`rust-toolchain.toml`**（固定 stable + `rustfmt`/`clippy`），保证本地与 CI
+    环境一致；新增 **`.editorconfig`**、**`.gitattributes`**（统一 LF、二进制与
+    生成物标记），并扩充 **`.gitignore`**（覆盖率产物、IDE 文件、`.env`、模型权重等）。
+  - 新增社区健康文件：**`CODE_OF_CONDUCT.md`**（Contributor Covenant 2.1）、
+    **`SECURITY.md`**（漏洞报告流程 + 部署安全边界）、**`SUPPORT.md`**（获取帮助）、
+    **`NOTICE`**（版权与第三方依赖许可）。
+  - 新增 GitHub 模板与自动化：**Issue Forms**
+    （`.github/ISSUE_TEMPLATE/{bug_report,feature_request}.yml` + `config.yml`）、
+    **PR 模板**、**`CODEOWNERS`**、**Dependabot**（cargo + github-actions 每周检查）、
+    **Security audit workflow**（RustSec 每周扫描）、
+    **Release workflow**（打 `v*.*.*` tag 自动构建多平台二进制 + SHA256）。
+  - **CI 增强**：新增 `docs` job（`RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps`）、
+    **macOS（arm64）build+test job**（跨平台可移植性）、主 job 改用 `--locked` 与
+    `clippy --all-targets`、最小权限 `permissions: contents: read` 与
+    `concurrency` 取消旧运行。
+  - **开发体验**：新增 **`Makefile`**（`make help`/`build`/`test`/`clippy`/`fmt`/
+    `doc-check`/`check`/`demo`/`example`/`release`）与 **`.vscode/extensions.json`**
+    （推荐扩展）。
+  - **Cargo 元数据**：`[workspace.package]` 补齐 `authors`/`repository`/`homepage`/
+    `keywords`/`categories`（修正原先的占位仓库地址），21 个 crate 全部继承并声明
+    `readme`。
+  - **文档体系**：新增 `docs/`（`ARCHITECTURE.md` 分层与依赖规则/关键 trait/数据流、
+    `DEVELOPMENT.md` 环境与 feature 矩阵与 CI 门禁、`DEPLOYMENT.md` 四阶段真机路线与
+    配置说明、`ROADMAP.md` 已完成/下一步、`RELEASE.md` 发布清单）；README 增加徽章、
+    目录、环境要求、文档导航、贡献与联系、许可证章节（测试数量更新为 570）；
+    CONTRIBUTING 重写为完整贡献流程。
+  - **文档链接修复**：修正 rustdoc 报错（`brain-core::math`、`brain-odometry::buffer`、
+    `brain-odometry::kalman`、`brain-kinematics::chain`、`brain-state::safety`、
+    `brain-autopilot::sensor`、`brain-node::tree_builder`、`brain-sim::{lib,mock}` 中
+    裸写的 `[0,1]` 等被误解析为 intra-doc link），使 `cargo doc -D warnings` 通过。
+- **`brain-agent` / `brain-core` / `brain-node` — 模型后端工厂（应用框架装配）**：
+  - `brain-agent`：新增 `factory::build_model(&cfg)`，按 `cfg.agent.backend`
+    （`mock`/`ollama`/`hermes`）构造 `Box<dyn Model>`（feature 门控，未启用返回 `None`）；
+    新增确定性离线后端 `EchoModel`（把最后一条用户消息原样作为答复，零配置可测）。
+  - `brain-core`：新增 `AgentConfig { backend }`（默认 `mock`，serde 默认兼容旧配置），
+    并入 `BrainConfig`；`validate` 校验非空。
+  - `brain-node`：新增 `model_factory` 演示（按配置选后端跑一轮问答），`--demo model`。
+  - 测试：factory 按后端构造/未知回退（含 feature 门控用例）、`EchoModel` 行为、
+    `AgentConfig` 默认/往返/校验。brain-core 65→**66**、brain-agent 默认 20→**23**。
+- **`brain-agent` / `brain-node` — 后端三轮回审计补全**：
+  - `OllamaModel` / `HermesModel` 新增 `Debug` 实现（**鉴权密钥脱敏**，日志可观测）。
+  - `HttpModel` 对“无 `tool_calls` 且无 `content`”的异常响应返回错误，与 Hermes 后端行为对齐
+    （不再静默返回空答复）。
+  - `brain-node` 的 `ollama_demo` / `hermes_demo` 现在**使用加载的配置**（`run(cfg)`），不再
+    内部回退到默认配置，`config.json` 里的 `ollama`/`hermes` 设置生效。
+  - 新增测试：两模型 `Debug` 脱敏、`HttpModel` 异常响应报错。
+    brain-agent hermes 27→**28**、ollama 28→**29**、http-llm 24→**25**。
+- **`brain-agent` / `brain-core` — Ollama / Hermes 后端二轮审计补全**：
+  - `list_models`/`ping` 现在会带上鉴权头（Bearer），修复鉴权服务下探测被误判为“不可达”的问题
+    （`HermesModel`、`OllamaModel` 一并修复）。
+  - `HermesModel` 新增 `session_id`（绑定 Hermes 对话 lineage，含 `with_session_id` 与
+    `HermesConfig.session_id`）；`generate` 对缺失 `content` 的异常响应返回错误而非静默空答复。
+  - 新增测试：`list_models` 鉴权头（hermes/ollama）、Hermes `session_id` 请求、缺失 content 报错。
+    brain-core 测试 64→**65**、brain-agent hermes 24→**27**、ollama 27→**28**。
+- **`brain-agent` / `brain-core` / `brain-node` — 链接 Hermes 智能体 daemon（端口 11438）**：
+  - `brain-core`：新增 `HermesConfig`（endpoint 默认 `http://127.0.0.1:11438`、model、
+    temperature、max_tokens、timeout_secs、可选 `api_token`），并入 `BrainConfig`（serde 默认，
+    兼容旧配置）；`validate` 增加参数自洽校验。
+  - `brain-agent`：新增 `hermes` feature + `HermesModel`（桥接 Hermes daemon 的 **OpenAI 兼容
+    `/v1/chat/completions`** 与 `/v1/models`；Hermes 内部完成 ReAct 工具调用、返回最终答复；
+    支持 `HERMES_API_TOKEN` Bearer 鉴权、`from_config`、`list_models`/`ping`）。
+  - `brain-node`：新增 `hermes` feature + `hermes_demo`（探测→列模型→指令答复），`--demo hermes`。
+  - 测试：brain-core 配置校验 + brain-agent 离线单测（本地回环 HTTP 服务器模拟 `/v1/chat/completions`
+    `/v1/models`，覆盖文本/请求形状/模型列表/鉴权头/探测）。CI 新增 `hermes` 后端 job。
+- **`brain-agent` / `brain-core` / `brain-node` — 链接本地 Ollama 推理引擎（端口 11434）**：
+  - `brain-core`：新增 `OllamaConfig`（endpoint 默认 `http://localhost:11434`、model、
+    temperature、num_predict、timeout_secs、可选 `api_key`），并入 `BrainConfig`（serde 默认，
+    兼容旧配置）；`validate` 增加参数自洽校验。
+  - `brain-agent`：新增 `ollama` feature + `OllamaModel`（原生 `/api/chat`，含工具调用，
+    `arguments` JSON 对象扁平化、`list_models`/`ping` 探测、`OLLAMA_API_KEY` Bearer 鉴权、
+    `from_config`）；`ToolSchema` 上移到 `types` 供两后端复用；抽出共享 `role_str`。
+  - `brain-node`：新增 `ollama` feature + `ollama_demo`（探测→列模型→工具调用闭环），
+    `--demo ollama` 运行。
+  - 测试：brain-core 配置校验 + brain-agent 离线单测（本地回环 HTTP 服务器模拟 `/api/chat`
+    `/api/tags`，覆盖文本/工具调用/请求形状/鉴权头/模型列表）。CI 新增 `ollama` 后端 job。
+  - 已在真实 Ollama（端口 11434）实测：连通性、列模型、工具注册、401 鉴权提示均正常。
+- **`brain-middleware` / `brain-message` / `brain-transport` — 新代码二轮审计补全**：
+  - `bus`：新增 `Topic::peek_message()`，在**单次加锁**内原子返回“值 + 时间戳”对，消除
+    `peek`+`last_updated` 两次加锁间的错配；`subscribe` 文档化无界通道的慢消费权衡。
+  - `frame`：新增 `max_pending()` 访问器，并明确 `with_max_pending` 需 ≥
+    `MAX_FRAME_PAYLOAD + FRAME_OVERHEAD` 才能可靠重组最大帧的约束。
+  - `can`：说明 `MAX_CAN_FRAMES` 防御性取值依据。新增测试（message 30→**31**、
+    middleware 10→**11**）。
+- **`brain-message` — 生产化补全（审计加固）**：
+  - `frame::FrameReader` 增加**累积缓冲上界**（`MAX_FRAME_PAYLOAD + FRAME_OVERHEAD`），
+    对“合法但巨大、负载迟迟不来”的退化输入自动裁剪重同步，杜绝无界内存增长（防 DoS）；
+    新增 `with_max_pending`/`clear`；`verify_frame` 增加超限长度前缀防御。
+  - `Mode`/`FixType` 增加 `Display`/`FromStr`/`name`/`from_name`（稳定名、大小写不敏感），
+    便于日志/配置；`Telemetry` 实现 `Default`；`lib.rs` 导出 `FixType`。
+  - `brain-message` 测试 24→**30**。
+- **`brain-middleware` — 总线生产化（原子性 + 推送订阅）**：
+  - `Topic` 将“最新值 + 时间戳 + 订阅者”收敛到**单把锁**，`publish`/`peek`/`last_updated`
+    读写原子，消除“新数据配旧时间戳”的中间态；锁中毒统一用 `into_inner` 恢复（不丢消息）。
+  - 新增**推送订阅**：`Topic::subscribe`/`DataBus::subscribe` 返回 `mpsc::Receiver<BusMessage<T>>`，
+    发布即推送（含时间戳），订阅即收到当前保留值，Receiver Drop 后自动回收；新增 `BusMessage`、
+    `subscriber_count`、`DataBus::remove`、`Topic` 的 `Debug`。
+  - `brain-middleware` 测试 6→**10**。
+- **`brain-transport` — 传输后端加固**：
+  - `can`：新增纯函数 `ingest_telemetry_frame` 增量重组（**遇新首帧自动对齐**、超
+    `MAX_CAN_FRAMES` 上限清空重来），`CanTransport` 改用之，避免分片跨消息混入/缓冲无界增长。
+  - `udp`：新增 `local_addr`/`peer`/`set_peer`（本地/对端诊断与运行期重配）。
+  - `open_transport` 支持 `"mavlink"` 内存桥后端。
+  - `brain-transport` 测试 41→**46**。
+- **`brain-ipc` — 环形缓冲测试补全（基础/线程安全）**：
+  - `clear` 清空后可复用、空缓冲 `pop_oldest`/`get`/`iter` 安全、`get` 越界返回 `None`、
+    **8 线程并发 push 不丢数据**（Mutex 保护）。`brain-ipc` 测试 6→**10**。
+- **`brain-transport::can` — 重组鲁棒性修复**：
+  - `decode_frames` 增加**分片序号连续性校验**（seq 必须为 1,2,3,…）：拒绝**重复段**
+    （此前重复段可绕过长度检查、截断出损坏数据）与缺段，避免 CAN 丢帧/重发导致错误重组。
+  - 新增 `decode_frames_rejects_duplicate_segment` 测试。`brain-transport` 测试 40→**41**。
+- **`brain-transport` — 分帧/鲁棒性测试补全**：
+  - `mavlink`：`decode_stream` 半包/粘包分帧、坏数据鲁棒性（非法 mode、未知 msgid、
+    空/截断负载均返回 `Err` 而非 panic）。
+  - `udp`：同一数据报多帧遥测的分帧解析。
+  - `brain-transport` 测试 37→**40**。
+- **`brain-autopilot` — 多目标协同避让（水面艇）**：
+  - `Colregs::classify_many(own, targets, params)`：对多个目标船逐一分类，返回
+    `Encounter`（目标下标 + 态势 + 动作）。
+  - `Colregs::aggregate(&[Encounter])`：按优先级聚合多目标动作（任一让路 → 让路；
+    否则受限能见度 → 安全航速；否则保向；否则减速；否则不动作）。
+  - `ais::ais_to_vessel_pose`：把 AIS 位置报告换算为局部 `VesselPose`（COG 真北→
+    本地 `atan2` 航向：`π/2 − COG`），打通"AIS → 多目标 COLREGS"链路。
+  - 新增 3 项测试（多目标聚合让路、全无风险→不动作、AIS→VesselPose 位置/航向换算）。
+    `brain-autopilot` 测试 46→**49**。
+- **`brain-mapping` — 占据网格测试补全**：
+  - `OccupancyGrid3D` 派生 `Debug`；新增 4 项测试（三态计数 `counts`、前沿探测
+    `frontiers`、越界写入/读取返回 `false`/`None` 不 panic、`is_occupied`/`is_free`
+    对未知与越界的语义）。`brain-mapping` 测试 7→**11**。
+- **生产门槛对齐（clippy -D warnings + rustfmt）**：
+  - 修复 `brain-locomotion::wbc`（`dynamic_torques` 加 `#[allow(too_many_arguments)]`、
+    测试循环改用迭代器）、`brain-autopilot`（`ais` 模式区间 `1..=3` 与 `is_multiple_of`、
+    `colregs` 合并相同分支）、示例 `ais_colregs`（`is_multiple_of`）。
+  - 全工作区 `cargo clippy --all-targets -- -D warnings` 与 `cargo fmt --check` 通过，
+    与 CI 门槛一致。
+- **`brain-zenoh` — 生产化补全（模块功能审计与加固）**：
+  - **键表达式增强**：`core` 支持单段通配 `*` 与任意深度通配 `**`（含 `**/gps` 之类
+    前缀匹配）；新增 `valid_key_expr`（拒绝空段/部分通配 `sen*or`/保留字符 `. # + $`）
+    与 `is_concrete_key`；`put`/`subscribe`/`get`/`declare_queryable` 均做键校验。
+  - **深度上限**：`valid_key_expr` 限定段数 ≤ `MAX_KEY_DEPTH`（64），防止恶意深键/
+    `**` 匹配指数爆炸与栈过深（`key_depth_is_capped`、`double_star_matches_deep_key`）。
+  - **线性匹配**：`key_matches` 改用**动态规划**（`O(|query|×|stored|)`），彻底消除 `**`
+    的指数回溯（`many_double_stars_still_linear`）。
+  - **可观测性**：`LocalZenoh` 实现 `Debug`（输出存储/订阅/计算计数，`debug_reports_live_counts`）。
+  - **死锁修复**：`LocalZenoh::get` 改为**锁外执行用户 `QueryHandler`**（先持锁收集
+    处理器再释放锁调用），杜绝 handler 内回调本后端造成的重入死锁。
+  - **panic 隔离**：`get` 用 `catch_unwind` 包裹 handler 执行，单个计算/服务异常被
+    日志化并跳过，不击穿进程。
+  - **错误表达**：`QueryHandler` 返回 `Result<Vec<Value>>`，handler 可显式报告计算
+    失败；`get`/真实 zenoh 回调对 `Err` 记录日志并跳过应答（新增 `failing_handler_is_skipped`
+    测试）。
+  - **`Clone`**：`LocalZenoh` 支持克隆，克隆体共享同一份存储/订阅。
+  - **订阅退订**：`Subscription` 新增 `unsubscribe()`（幂等，`Drop` 自动调用）；
+    `LocalZenoh` 按订阅者 id 管理并支持通配订阅退订。
+  - **存储管理**：新增 `value`/`contains`/`remove`/`clear`；`store_count` 只统计有值
+    条目；新增 `subscription_count`/`queryable_count` 监控；空条目自动 `prune` 防无界增长。
+  - **错误类型扩展**：`LocalZenohError` 新增 `InvalidKey`。
+  - **真实 zenoh 后端**：`zenoh_impl` 订阅样本改用真实时间戳（`Timestamp::get_time()`
+    读取，而非恒 0）。
+  - 新增 17 项测试（键校验、非法表达式拒绝、`**` 聚合、退订、存储管理、**handler 重入
+    不死锁**、**handler 失败/panic 隔离**、`Clone` 共享、深度上限、`Debug`、DP 多 `**`）。
+    `brain-zenoh` 测试 14→**31**。
+- **`brain-node` — 主程序生产化（CLI + 退出码 + 测试）**：
+  - 新增**命令行接口**（无第三方依赖）：`--demo <name>` 单演示运行、`--list` 枚举、
+    `--config <path>`（优先级高于 `$SMART_BRAIN_CONFIG`）、`--iterations <n>`、`--help`/`--version`。
+  - **退出码**：`0` 成功 / `1` 配置无效 / `2` 用法错误或未知演示；配置无效不再 panic。
+  - **死代码清理**：移除仅被 `let _ = &mission` 引用的未用 `Mission`/`Waypoint` 构造。
+  - 新增 4 项 CLI 单元测试（默认值、标志/取值解析、非法输入拒绝、演示名唯一）。
+    `brain-node` 测试 9→**13**。
 - **`brain-autopilot::ais` — AIS 报文解析器**（水面艇"多艇会遇感知"输入层）：
   - 解析 NMEA `!AIVDM/!AIVDO` 6-bit 负载，解码类型 1/2/3（A 类位置报告）、
     18（B 类位置报告）、5（静态/航次数据：船名/呼号/船型/IMO/尺寸）。

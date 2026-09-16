@@ -1,0 +1,12 @@
+{
+  "//": "VS Code 推荐扩展（打开本仓库时 VS Code 会提示安装）。",
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "vadimcn.vscode-lldb",
+    "serayuzgur.crates",
+    "tamasfe.even-better-toml",
+    "redhat.vscode-yaml",
+    "github.vscode-github-actions",
+    "davidanson.vscode-markdownlint"
+  ]
+}

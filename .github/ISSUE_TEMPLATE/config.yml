@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📚 使用与架构文档
+    url: https://github.com/arkCyber/Smart-Brain#readme
+    about: 构建、运行、各模块职责与配置说明，请先阅读 README。
+  - name: 🆘 获取帮助（Support）
+    url: https://github.com/arkCyber/Smart-Brain/blob/main/SUPPORT.md
+    about: 提问前的自查清单与推荐渠道。
+  - name: 🔐 私下报告安全漏洞
+    url: https://github.com/arkCyber/Smart-Brain/security/advisories/new
+    about: 请勿在公开 Issue 中披露安全漏洞，改走私有漏洞报告通道。
+  - name: 🤝 贡献指南
+    url: https://github.com/arkCyber/Smart-Brain/blob/main/CONTRIBUTING.md
+    about: 开发环境、代码规范、提交信息与 PR 流程。

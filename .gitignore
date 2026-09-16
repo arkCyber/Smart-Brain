@@ -1,17 +1,48 @@
-# Build artifacts
+# 构建产物
 /target/
+/dist/
+*.pdb
+**/*.rs.bk
 
-# Editor
+# 覆盖率 / 性能分析产物
+*.profraw
+*.profdata
+*.gcda
+*.gcno
+/coverage/
+
+# 编辑器与 IDE
 *.swp
+*.swo
+*.orig
+*.rej
+.idea/
+*.iml
 .vscode/*
 !.vscode/extensions.json
+!.vscode/settings.json
 
-# OS
+# 操作系统
 .DS_Store
+Thumbs.db
+
+# 日志与临时文件
+*.log
+/tmp/
+
+# 密钥 / 环境变量（切勿提交真实凭据）
+.env
+.env.*
+!.env.example
 
 # 用户生成的真机配置文件（默认加载 config.json，可经 SMART_BRAIN_CONFIG 指定）。
 # 模板见 config.example.json，勿提交本地私有配置。
 /config.json
 
+# 本地 ONNX / 模型权重（体积大，请用外部存储或用 Git LFS 显式跟踪）
+/models/
+*.onnx
+
 # Note: Cargo.lock is committed for reproducible builds (workspace contains binaries).
+
 

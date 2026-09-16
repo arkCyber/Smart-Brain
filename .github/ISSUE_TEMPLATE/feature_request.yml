@@ -1,0 +1,81 @@
+name: ✨ 功能建议
+description: 建议新功能、新机器人形态或新平台支持（Gazebo/AirSim、机械臂、真机后端等）
+title: "[Feature] "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        建议前请先阅读 [README.md](https://github.com/arkCyber/Smart-Brain/blob/main/README.md)
+        的架构分层表与 [docs/ROADMAP.md](https://github.com/arkCyber/Smart-Brain/blob/main/docs/ROADMAP.md)，
+        确认该方向是否已在计划中。
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前检查
+      options:
+        - label: 我已搜索过现有 Issue / ROADMAP，确认这不是重复建议
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决的问题
+      description: 描述你的使用场景与痛点（例如“想在四足机器人上复用，但缺少 X”）。
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议方案
+      description: 你希望如何实现？请尽量说明落在哪一层/crate，以及是新增 crate 还是扩展现有 trait。
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案
+      description: 你考虑过的其他做法，以及社区中已有的相关实现（crate/论文/项目）。
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: 相关层 / 模块
+      multiple: true
+      options:
+        - 具身抽象层（brain-robot）
+        - 运动学 / 步态 / 全身控制（brain-kinematics、brain-locomotion）
+        - 感知 / 定位 / 建图（brain-perception、brain-odometry、brain-mapping）
+        - 规划 / 导航 / 自动驾驶（brain-planning、brain-nav、brain-autopilot）
+        - 通信 / 中间件 / 传输（brain-zenoh、brain-middleware、brain-transport）
+        - 状态机 / 决策（brain-state、brain-behavior-tree）
+        - 任务 / 蜂群（brain-mission）
+        - Agent / LLM（brain-agent）
+        - 仿真（brain-sim）
+        - 构建 / CI / 文档 / 工程化
+  - type: dropdown
+    id: robots
+    attributes:
+      label: 目标机器人形态
+      multiple: true
+      options:
+        - 多旋翼 / 无人机
+        - 汽车（阿克曼）
+        - 水面艇 / 船舶
+        - 四足 / 人形
+        - 机械臂 / 操作
+        - 其他 / 平台无关
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 怎样算做完了？例如“新增单元测试 X 项并接入 `<crate>/examples/`，CI 全绿”。
+    validations:
+      required: false
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: 参与意愿
+      options:
+        - label: 我愿意提交 PR 实现该功能
+        - label: 我可以提供测试数据 / 真机验证环境

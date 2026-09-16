@@ -8,6 +8,15 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+# 同一分支/PR 的新提交取消尚未结束的旧运行，节省 CI 配额并加快反馈。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小权限原则：CI 只读仓库内容（release 流水线单独声明权限）。
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     name: build / test / clippy
@@ -23,16 +32,30 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --workspace
+        run: cargo build --workspace --locked
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
 
       - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
       - name: Format check
         run: cargo fmt --all -- --check
+
+  build-and-test-macos:
+    name: build / test (macOS arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # 跨平台可移植性：除 Linux 外的第二个 OS。
+      # 注意 `can`（SocketCAN）为 Linux 专属，不在本 job 验证。
+      - name: Build
+        run: cargo build --workspace --locked
+      - name: Run tests
+        run: cargo test --workspace --locked
 
   real-zenoh:
     name: real-zenoh feature build / clippy / test
@@ -46,7 +69,7 @@ jobs:
       # 除编译外还要跑 clippy(-D warnings) 与离线单测，防止 feature 分支被
       # `cargo build` 掩盖的警告/回归（真实 zenoh 适配的 queryable 生命周期等）。
       - name: Build real-zenoh
-        run: cargo build -p brain-zenoh --features real-zenoh
+        run: cargo build -p brain-zenoh --features real-zenoh --locked
       - name: Clippy real-zenoh (deny warnings)
         run: cargo clippy -p brain-zenoh --features real-zenoh --all-targets -- -D warnings
       - name: Test real-zenoh (offline)
@@ -74,6 +97,16 @@ jobs:
         run: cargo clippy -p brain-agent --features http-llm --all-targets -- -D warnings
       - name: Test agent (http-llm)
         run: cargo test -p brain-agent --features http-llm --lib
+      # Ollama 原生后端：clippy + 离线单测（本地回环 HTTP 服务器模拟 /api/chat、/api/tags）。
+      - name: Build & test agent (ollama)
+        run: cargo clippy -p brain-agent -p brain-node --features ollama --all-targets -- -D warnings
+      - name: Test agent (ollama)
+        run: cargo test -p brain-agent --features ollama --lib
+      # Hermes 智能体 daemon 后端：clippy + 离线单测（本地回环 HTTP 服务器模拟 /v1/chat/completions、/v1/models）。
+      - name: Build & test agent (hermes)
+        run: cargo clippy -p brain-agent -p brain-node --features hermes --all-targets -- -D warnings
+      - name: Test agent (hermes)
+        run: cargo test -p brain-agent --features hermes --lib
 
   async-runtime:
     name: tokio async feature build / test
@@ -85,6 +118,19 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Build & test brain-node (async)
-        run: cargo test -p brain-node --features async --all-targets
+        run: cargo test -p brain-node --features async --all-targets --locked
       - name: Clippy brain-node (async)
         run: cargo clippy -p brain-node --features async --all-targets -- -D warnings
+
+  docs:
+    name: rustdoc build (deny warnings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # 公共 API 文档也是交付物：断链 / 非法 intra-doc link 必须让 CI 失败。
+      - name: Build API docs
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps

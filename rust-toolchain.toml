@@ -1,0 +1,6 @@
+# 固定工具链：所有贡献者、CI 与本地开发使用同一套 stable 工具链与组件，
+# 避免“在我机器上能编译”的环境漂移。升级 Rust 时请同步更新 CI 与本文件。
+[toolchain]
+channel = "stable"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

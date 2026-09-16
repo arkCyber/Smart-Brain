@@ -1,0 +1,29 @@
+# 统一文本文件处理：仓库内文本一律 LF，二进制文件显式声明，避免跨平台 diff 噪声。
+* text=auto eol=lf
+
+# Rust
+*.rs text
+*.toml text
+
+# 文档
+*.md text
+*.mdx text
+docs/** linguist-documentation
+
+# 构建产物不参与 diff / 语言统计
+/target/** linguist-vendored
+Cargo.lock -diff linguist-generated
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.onnx binary
+*.onnxruntime binary
+.DS_Store binary
+
+# GitHub Actions / 模板
+.github/workflows/*.yml text

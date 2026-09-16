@@ -1,0 +1,67 @@
+name: Release
+
+# 打 tag（v0.1.0 形式）时构建各平台可执行文件并附到 GitHub Release。
+# 也可在 Actions 页面手动触发（workflow_dispatch）做冒烟构建。
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-binaries:
+    name: build / ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - os: macos-14
+            target: aarch64-apple-darwin
+            archive: tar.gz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build release binaries
+        run: cargo build --locked --release -p brain-node
+
+      - name: Package artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME:-manual}"
+          NAME="smart-brain-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/${NAME}"
+          cp target/release/brain-node "dist/${NAME}/"
+          cp README.md LICENSE NOTICE CHANGELOG.md config.example.json "dist/${NAME}/"
+          tar -C dist -czf "dist/${NAME}.tar.gz" "${NAME}"
+          ls -lh "dist/${NAME}.tar.gz"
+          # 校验和，便于部署方验证产物完整性
+          shasum -a 256 "dist/${NAME}.tar.gz" > "dist/${NAME}.tar.gz.sha256" \
+            || sha256sum "dist/${NAME}.tar.gz" > "dist/${NAME}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-brain-${{ matrix.target }}
+          path: dist/*.tar.gz*
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.tar.gz*
+          generate_release_notes: true
+          draft: false

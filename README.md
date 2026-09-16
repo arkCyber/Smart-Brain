@@ -1,5 +1,14 @@
 # Smart-Brain — 无人机 AI 大脑（智能任务计算机）
 
+[![CI](https://github.com/arkCyber/Smart-Brain/actions/workflows/ci.yml/badge.svg)](https://github.com/arkCyber/Smart-Brain/actions/workflows/ci.yml)
+[![Security audit](https://github.com/arkCyber/Smart-Brain/actions/workflows/audit.yml/badge.svg)](https://github.com/arkCyber/Smart-Brain/actions/workflows/audit.yml)
+[![Release](https://github.com/arkCyber/Smart-Brain/actions/workflows/release.yml/badge.svg)](https://github.com/arkCyber/Smart-Brain/actions/workflows/release.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg?logo=rust)](rust-toolchain.toml)
+[![Tests](https://img.shields.io/badge/tests-570%20passing-brightgreen.svg)](#二快速开始)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Conventional Commits](https://img.shields.io/badge/commits-conventional-fe5196.svg)](https://www.conventionalcommits.org/)
+
 用 **Rust** 编写、以 **cargo workspace** 组织的飞行器“AI 大脑”原型。
 它严格遵循“**软硬件解耦、安全隔离、异构计算**”的参考架构，将高频机动的
 飞控（小脑）与高算力的 AI 决策（大脑）在逻辑上分层隔离。
@@ -7,6 +16,18 @@
 > 这是一个**可编译、可运行、可测试**的工作区骨架。默认在 **SITL（mock 飞控）**
 > 中运行完整任务闭环，无需任何系统级依赖，`cargo build` 开箱即用。
 > 真机部署的接线点（真实串口、ONNX 模型）已在代码中以 feature/接口形式预留。
+
+## 目录
+
+- [一、架构与参考分层映射](#一架构与参考分层映射)
+- [二、快速开始](#二快速开始)
+- [三、各模块说明](#三各模块说明)
+- [四、真机部署路线（对应参考架构四阶段）](#四真机部署路线对应参考架构四阶段)
+- [五、面向具身机器人的扩展（从“无人机大脑”到“通用机器人大脑”）](#五面向具身机器人的扩展从无人机大脑到通用机器人大脑)
+- [六、后续可扩展方向](#六后续可扩展方向)
+- [七、文档导航](#七文档导航)
+- [八、贡献、支持与联系](#八贡献支持与联系)
+- [九、许可证](#九许可证)
 
 ---
 
@@ -40,18 +61,32 @@
 
 ## 二、快速开始
 
+**环境要求**：只需要 **stable Rust 工具链**（含 `rustfmt`、`clippy`）与 `git`。
+仓库用 [`rust-toolchain.toml`](rust-toolchain.toml) 固定工具链，`rustup` 会自动切换；
+**默认构建不需要任何系统级依赖**（串口/CAN/ONNX/LLM 后端均为 feature 门控，
+详见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)）。
+
 ```bash
+# 0) 获取代码
+git clone https://github.com/arkCyber/Smart-Brain.git
 cd Smart-Brain
+rustup show          # 应显示 stable（由 rust-toolchain.toml 指定）
 
-# 构建整个 workspace（默认无系统级依赖，开箱即用）
-cargo build
+# 1) 构建整个 workspace（默认无系统级依赖，开箱即用；--locked 与 Cargo.lock 严格一致）
+cargo build --locked
 
-# 运行全部单元测试（405 项）
-cargo test
+# 2) 运行全部单元测试（570 项，全部离线可跑）
+cargo test --workspace
 
-# 运行完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面
-# 随后演示 Fail-safe 看门狗在“大脑卡死”时强制进入自动悬停（Loiter）
+# 3) 运行完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面
+#    随后演示 Fail-safe 看门狗在“大脑卡死”时强制进入自动悬停（Loiter）
 cargo run -p brain-node
+
+# 4) 提交前跑一遍质量门禁（与 CI 一致；有 make 时等价于 `make check`）
+cargo fmt --all -- --check && \
+cargo clippy --workspace --all-targets -- -D warnings && \
+cargo test --workspace && \
+RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps
 ```
 
 **配置加载**：`brain-node` 启动时依次尝试加载配置，优先级为
@@ -75,6 +110,9 @@ cargo run -p brain-ipc --example ring          # 零分配环形缓冲
 cargo run -p brain-zenoh --example pubsub      # Zenoh 三支柱：Pub/Sub + Store/Query + Compute
 cargo run -p brain-planning --example astar    # A* 避障规划
 cargo run -p brain-agent --example agent       # Agent 工具调用闭环
+cargo run -p brain-agent --features ollama --example ollama   # 链接本地 Ollama（端口 11434）
+cargo run -p brain-agent --features hermes --example hermes   # 链接 Hermes 智能体 daemon（端口 11438）
+cargo run -p brain-node -- --demo model                      # 模型后端工厂（按配置选 mock/ollama/hermes）
 cargo run -p brain-autopilot --example ais_colregs   # 水面艇：AIS → 局部坐标 → COLREGS 避让
 cargo run -p brain-locomotion --example dynamic_contact  # 足式：接触 + 全身动力学力矩
 # …每个 crate 的示例见其 README
@@ -284,7 +322,18 @@ DeepSeek / Qwen / Ollama / vLLM / LM Studio…），自动识别响应的 `conte
 `tool_calls`（含函数调用格式 `{type,function}` 工具定义），让 Agent 真正调用工具、
 多轮生成最终答复——与 `OnnxModelBackend`/`ZenohBackend` 同一"默认离线、feature
 开启接真实后端"策略，自带 5 项离线单测（本地回环 HTTP 服务器验证请求/响应编解码）。
-真机可把 `MockModel`/`MockEmbedder` 换成 `HttpModel`/Rig / 端侧小模型与真实嵌入。
+**Ollama 原生后端 `OllamaModel`**（`--features ollama`，端口 11434）已就绪：调用本机
+Ollama `/api/chat`（含工具调用，`arguments` 为 JSON 对象并扁平化为字符串映射），
+提供 `list_models`/`ping` 探测，支持 `OLLAMA_API_KEY`/配置 `api_key` 鉴权；
+配套 `brain-node --demo ollama` 演示与离线单测。
+**Hermes 智能体后端 `HermesModel`**（`--features hermes`，端口 11438）已就绪：桥接
+Hermes-Rust daemon 的 **OpenAI 兼容 `/v1`**（`/v1/chat/completions` 与 `/v1/models`），
+Hermes 在内部完成 ReAct 工具调用、返回最终答复；提供 `list_models`/`ping` 探测与
+`HERMES_API_TOKEN` 鉴权；配套 `brain-node --demo hermes` 演示与离线单测。
+**后端工厂**（`factory::build_model`）已就绪：按 `config.json` 的 `agent.backend`
+（`mock`/`ollama`/`hermes`）一键切换大脑的模型后端，配套确定性离线 `EchoModel` 与
+`brain-node --demo model` 演示，无需改动装配代码。
+真机可把 `MockModel`/`MockEmbedder` 换成 `HttpModel`/`OllamaModel`/`HermesModel`/Rig 与真实嵌入。
 
 ### brain-autopilot（闭环自主导航）
 把 `brain-mapping`（占据网格/光线投射）、`brain-nav`（前沿探索/面包屑回溯）、
@@ -329,6 +378,13 @@ DWA 局部避障**（采样 `(速度,前轮转角)`，尊重最小转弯半径�
 `async_runtime`（`--features async`）演示 **tokio 异步任务并发**（感知/决策作为
 async 任务在单一运行时上调度），`swarm_coord_demo` 演示**蜂群 Leader 选举 +
 任务分配**（全网确定性一致 + JSON 分配表）。
+
+**生产化 CLI**（`cargo run -p brain-node`）：
+- 默认依序运行全部演示；`--demo <name>` 只运行一个，`--list` 枚举、`--help`/`--version`
+- `--config <path>` 显式指定配置，`--iterations <n>` 控制 mission 演示 tick 数
+- 退出码：`0` 成功 / `1` 配置无效 / `2` 用法错误或未知演示；配置无效不再 panic
+
+
 
 ---
 
@@ -378,7 +434,7 @@ ONNX）已就绪，可据此继续。
 | 泛化状态机 | `brain-state` 由 `FlightState` 扩展为通用 `RobotState`（站立/行走/操作/抓取） |
 | 泛化行为树 | 把 `drone_nodes` 泛化为通用机器人节点（`Navigate`/`Grasp`/`Manipulate`），飞行节点降级为具体身体的一种 |
 | 传感器 | 增加接触力/IMU/里程计话题类型（已在 `BodyState` 预留 contact） |
-| ✅ 水面艇/航海 | **已完成**：`BoatBody` + `BoatAutopilot`（**时变水流/潮汐已接入 DWA**/多点巡航/定泊）+ `ais`（AIS 报文解析）+ `Colregs`（**完整**：对遇/交叉/追越 + 能见度受限 Rule 19 + 机动船让帆船）。剩余：多艇协同避让（把多个 AIS 目标同时喂给 COLREGS）、扩展 AIS 报文类型（6/24/27）、时变水流多点观测 |
+| ✅ 水面艇/航海 | **已完成**：`BoatBody` + `BoatAutopilot`（**时变水流/潮汐已接入 DWA**/多点巡航/定泊）+ `ais`（AIS 报文解析 + `ais_to_vessel_pose` 转局部位姿）+ `Colregs`（**完整**：对遇/交叉/追越 + 能见度受限 Rule 19 + 机动船让帆船 + **多目标协同避让** `classify_many`/`aggregate`）。剩余：扩展 AIS 报文类型（6/24/27）、时变水流多点观测 |
 
 > 审计要点：`brain-core`、`brain-middleware`、`brain-perception`、
 > `brain-state::FailsafeWatchdog`、`brain-behavior-tree`（框架本身）已经是
@@ -387,7 +443,78 @@ ONNX）已就绪，可据此继续。
 
 ## 六、后续可扩展方向
 
-- 接入真实 **Zenoh** 或 **ros2-client**（Rust）做蜂群低延迟通信。
-- 把行为树换成社区成熟的 **behavior-tree** crate，或接入状态机/规划器。
-- 用 **tokio**/多线程把感知、决策、传输流水线拆成独立异步任务。
-- 为 `FcuTransport` 增加 **MAVLink 协议**编解码与 CAN 帧封装。
+**近期重点**（完整清单与验收标准见 [docs/ROADMAP.md](docs/ROADMAP.md)）：
+
+- 基于 `brain-sim::Simulator` trait 接入 **Gazebo / AirSim / Isaac**（大脑代码零改动）。
+- 与 ArduPilot/PX4 做**真实 MAVLink 联调**（现有 `brain-transport::mavlink` 为帧级编解码骨架）。
+- 把 `brain-locomotion::ContactModel` 接入 `brain-sim` 物理后端，并增加关节力矩超限在线校验。
+- 轨迹生成/平滑（曲率、加加速度约束）与车道/交通灯语义。
+
+**中期**：泛化 `brain-message`/`brain-state`/`drone_nodes` 中“飞行专用”的部分
+（见上表），让同一套大脑直接服务四足/机械臂/人形。
+
+**已完成**（曾经的“后续方向”）：真实 **Zenoh** 适配（`real-zenoh`）、
+**tokio** 异步流水线（`async`）、**MAVLink 式**编解码与 **CAN 帧封装**均已落地。
+
+---
+
+## 七、文档导航
+
+| 文档 | 内容 |
+|------|------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构、crate 依赖图、数据流、关键 trait 与设计权衡 |
+| [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 环境搭建、常用命令、feature 矩阵、CI 门禁、代码规范、FAQ |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 四阶段真机部署路线、配置项说明、部署检查清单 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 已完成 / 下一步 / 长期设想 |
+| [docs/RELEASE.md](docs/RELEASE.md) | 版本约定、发布清单、产物校验 |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 如何贡献代码 |
+| [SECURITY.md](SECURITY.md) | 安全漏洞报告与部署安全边界 |
+| [SUPPORT.md](SUPPORT.md) | 提问渠道与自查清单 |
+| [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | 社区行为准则 |
+| [CHANGELOG.md](CHANGELOG.md) | 变更记录 |
+| `crates/*/README.md` | 每个 crate 的职责 / 所属层 / 核心 API / 用法 / 依赖 |
+
+生成 API 文档：`cargo doc --workspace --no-deps --open`。
+
+---
+
+## 八、贡献、支持与联系
+
+欢迎贡献！请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md) 与
+[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)：
+
+```bash
+git checkout -b feat/your-feature     # 分支开发
+cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+# 提交信息遵循 Conventional Commits，例如：
+# feat(planning): 增加 Hybrid A* 全局规划
+```
+
+- 🐛 **Bug / 功能建议**：[Issue 模板](https://github.com/arkCyber/Smart-Brain/issues/new/choose)
+- 🔐 **安全漏洞**：请**不要**开公开 Issue，按 [SECURITY.md](SECURITY.md) 私下报告
+- 🆘 **使用问题**：先看 [SUPPORT.md](SUPPORT.md) 的自查清单
+- 📧 **联系作者**：**arkSong** — arksong2018@gmail.com
+- 👤 **维护者**：[@arkCyber](https://github.com/arkCyber)
+
+如果这个项目对你有帮助，欢迎 Star ⭐ 或提交 PR。
+
+---
+
+## 九、许可证
+
+本项目采用 **Apache License 2.0** 授权，详见 [LICENSE](LICENSE)；
+第三方依赖清单与免责声明见 [NOTICE](NOTICE)。
+
+```text
+Copyright 2026 arkSong <arksong2018@gmail.com>
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+```
+
+> ⚠️ **安全声明**：本项目为研究性与原型软件，**不构成适航、船级社或道路安全认证**。
+> 真机部署（无人机、汽车、水面艇、足式机器人）的安全责任由使用者自行承担，
+> 请务必在仿真与隔离场地中充分验证，并保留遥控接管与物理急停。

@@ -1,0 +1,16 @@
+# CODEOWNERS — 默认评审人（见 https://docs.github.com/代码仓/协作/管理代码仓的负责人）
+# 语法：<pattern> <owner>[@<owner>...]
+
+# 默认：仓库所有者为全部文件的负责人
+*                       @arkCyber
+
+# 基础设施与 CI：任何构建/发布相关改动都要由维护者评审
+/.github/               @arkCyber
+/Cargo.toml             @arkCyber
+/Cargo.lock             @arkCyber
+/rust-toolchain.toml    @arkCyber
+
+# 安全与文档
+/SECURITY.md            @arkCyber
+/LICENSE                @arkCyber
+/docs/                  @arkCyber
