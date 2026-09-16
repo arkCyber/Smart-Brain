@@ -27,7 +27,7 @@ jobs:
       contents: read
       issues: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 使用预编译的 cargo-audit（比 cargo install 快得多）。
       - name: Install cargo-audit

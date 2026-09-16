@@ -5,6 +5,10 @@ All notable changes to this project are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **CI Actions 运行时告警**：把工作流依赖升级到 Node 24 兼容版本
+  （`actions/checkout` v4→**v7**、`actions/upload-artifact` v4→**v7**、
+  `softprops/action-gh-release` v2→**v3**），消除 “Node.js 20 is deprecated”
+  注释告警（Dependabot 提出的对应 PR 会在其下次运行时自动关闭）。
 - **`brain-transport` — `udp` 单测在 Linux 上必然失败（CI `build / test / clippy` 长期红灯的根因）**：
   `udp::tests::send_command_returns_ok` 把对端地址写成 `127.0.0.1:0`，而 Linux 下向
   端口 0 发送会返回 `EINVAL`（macOS 允许），于是 `send_command(...).unwrap()` panic；
