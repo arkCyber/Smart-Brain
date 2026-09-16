@@ -4,7 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-_暂无变更（下一版本计划见 [docs/ROADMAP.md](docs/ROADMAP.md)）。_
+### Changed
+- **Release 流水线改为「构建 + 单独发布」两阶段**：多平台构建（矩阵）与发布
+  （`publish` job）分离，避免多个平台任务并发创建同一个 GitHub Release 导致
+  发布说明被重复追加；校验和文件改为只写文件基名，下载后可直接
+  `shasum -a 256 -c <name>.tar.gz.sha256` 校验（已在 v0.1.0 产物上实测）。
+
+_下一版本计划见 [docs/ROADMAP.md](docs/ROADMAP.md)。_
 
 ## [0.1.0] - 2026-09-16
 
