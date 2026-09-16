@@ -14,36 +14,7 @@ use brain_core::error::BrainError;
 use brain_core::Result;
 
 use crate::model::{Model, ModelOutput};
-use crate::types::{Message, Role, ToolCall};
-
-/// 一个 OpenAI 风格的工具定义（JSON Schema 精简版）。
-///
-/// 传给模型，让它可以决定何时调用某个工具。`parameters` 为可选的 JSON Schema；
-/// 缺省时许多模型也能自行生成 `arguments`（name/description 足够）。
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct ToolSchema {
-    name: String,
-    description: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parameters: Option<serde_json::Value>,
-}
-
-impl ToolSchema {
-    /// 用名字与描述构造一个工具定义。
-    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            description: description.into(),
-            parameters: None,
-        }
-    }
-
-    /// 追加一个 JSON Schema 作为参数定义。
-    pub fn with_parameters(mut self, parameters: serde_json::Value) -> Self {
-        self.parameters = Some(parameters);
-        self
-    }
-}
+use crate::types::{role_str, Message, ToolCall, ToolSchema};
 
 /// 请求体中的一条对话消息（角色字符串序列化）。
 #[derive(Debug, Clone, serde::Serialize)]
@@ -187,23 +158,18 @@ impl Model for HttpModel {
             }
         }
 
-        // 2) 否则取文本答复。
-        let text = message["content"].as_str().unwrap_or("").to_string();
-        Ok(ModelOutput::Text(text))
+        // 2) 否则取文本答复。既无 tool_calls 也无 content 视为异常响应，返回错误。
+        let content = message["content"].as_str();
+        match content {
+            Some(text) => Ok(ModelOutput::Text(text.to_string())),
+            None => Err(BrainError::Agent(
+                "llm: response has no content or tool_calls".into(),
+            )),
+        }
     }
 
     fn name(&self) -> &str {
         "http"
-    }
-}
-
-/// 角色 → OpenAI 角色字符串。
-fn role_str(role: Role) -> &'static str {
-    match role {
-        Role::System => "system",
-        Role::User => "user",
-        Role::Assistant => "assistant",
-        Role::Tool => "tool",
     }
 }
 
@@ -344,5 +310,15 @@ mod tests {
         let v = serde_json::to_value(t).unwrap();
         assert_eq!(v["name"], "set_target");
         assert_eq!(v["parameters"]["properties"]["x"]["type"], "number");
+    }
+
+    #[test]
+    fn errors_on_malformed_response() {
+        // 既无 tool_calls 也无 content 的响应视为异常，返回错误而非空答复。
+        let body = r#"{"choices":[{"message":{"role":"assistant"}}]}"#;
+        let (url, handle, _rx) = serve(body);
+        let mut m = HttpModel::new(url, "m");
+        assert!(m.generate(&[Message::user("hi")]).is_err());
+        handle.join().unwrap();
     }
 }

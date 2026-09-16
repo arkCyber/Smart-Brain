@@ -43,6 +43,10 @@ pub fn verify_frame(frame: &[u8]) -> Option<&[u8]> {
         return None;
     }
     let len = u16::from_le_bytes([frame[0], frame[1]]) as usize;
+    // 防御：超过负载上限的长度前缀一律视为非法（与 `FrameReader` 的失步判定一致）。
+    if len > MAX_FRAME_PAYLOAD {
+        return None;
+    }
     if frame.len() != len + FRAME_OVERHEAD {
         return None;
     }
@@ -58,8 +62,16 @@ pub fn verify_frame(frame: &[u8]) -> Option<&[u8]> {
 /// 字节流 → 完整帧解析器。
 ///
 /// 内部维护累积缓冲，正确处理半包（数据不足）与粘包（一次多帧）。
+///
+/// 生产防护：
+/// - 对异常长度前缀（> [`MAX_FRAME_PAYLOAD`]）自动重同步：跳过 2 字节长度头重新对齐；
+/// - 对“合法但巨大、且负载迟迟不来”的退化输入，将累积缓冲钳制在
+///   [`MAX_FRAME_PAYLOAD`] + [`FRAME_OVERHEAD`] 之内，超界即从头部丢弃旧字节，
+///   避免无界内存增长（防 DoS）。
 pub struct FrameReader {
     buf: Vec<u8>,
+    /// 允许留在累积缓冲中的最大字节数（超过即触发重同步裁剪）。
+    max_pending: usize,
 }
 
 impl Default for FrameReader {
@@ -69,8 +81,29 @@ impl Default for FrameReader {
 }
 
 impl FrameReader {
+    /// 默认上界：恰好容纳一条最大合法帧（负载上限 + 帧头尾开销）。
     pub fn new() -> Self {
-        Self { buf: Vec::new() }
+        Self {
+            buf: Vec::new(),
+            max_pending: MAX_FRAME_PAYLOAD + FRAME_OVERHEAD,
+        }
+    }
+
+    /// 指定更小/更大的累积缓冲上界（测试或特化链路使用）。
+    ///
+    /// 注意：若要可靠重组**单条最大帧**，`max_pending` 必须 ≥
+    /// [`MAX_FRAME_PAYLOAD`] + [`FRAME_OVERHEAD`]；更小值会把仍处于“半包”状态的
+    /// 合法大帧在未收全前就裁剪丢弃（生产请使用默认 [`FrameReader::new`]）。
+    pub fn with_max_pending(max_pending: usize) -> Self {
+        Self {
+            buf: Vec::new(),
+            max_pending,
+        }
+    }
+
+    /// 当前累积缓冲上界（诊断用）。
+    pub fn max_pending(&self) -> usize {
+        self.max_pending
     }
 
     /// 追加一段字节，返回解析出的全部完整帧负载。
@@ -99,12 +132,22 @@ impl FrameReader {
             }
             // 校验失败：丢弃该帧，继续找下一帧（简单滑动）。
         }
+        // 防 DoS：若仍有未消费字节且超过上界（如反复收到巨大长度头但负载迟迟不来），
+        // 丢弃最旧的字节回到上界内（保留最新数据，等价于强制重同步）。
+        if self.buf.len() > self.max_pending {
+            self.buf.drain(..self.buf.len() - self.max_pending);
+        }
         out
     }
 
     /// 是否还有未消费的缓冲字节。
     pub fn pending(&self) -> usize {
         self.buf.len()
+    }
+
+    /// 丢弃所有未消费字节（清空重同步状态）。
+    pub fn clear(&mut self) {
+        self.buf.clear();
     }
 }
 
@@ -191,5 +234,58 @@ mod tests {
         let frames = reader.push(&good);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0], b"ok");
+    }
+
+    #[test]
+    fn verify_frame_rejects_oversized_len() {
+        // 一个声称长度超过 MAX 的帧应被直接拒绝（无需完整数据）。
+        let mut frame = vec![0x00, 0x40]; // 长度前缀 = 0x4000 == MAX，合法边界
+        frame.extend_from_slice(&[0u8; MAX_FRAME_PAYLOAD]); // 恰好 MAX 负载
+        frame.extend_from_slice(&[0u8; 2]); // CRC 占位
+                                            // 恰好等于 MAX 应通过长度检查（CRC 需匹配才返回 Some，这里必然不匹配）：
+        assert_eq!(verify_frame(&frame), None);
+        // 超过 MAX 的长度前缀直接非法。
+        let mut over = vec![0x00, 0x41]; // 长度前缀 = 0x4100 > MAX
+        over.extend_from_slice(&[0u8; 0x4100]);
+        over.extend_from_slice(&[0u8; 2]);
+        assert!(verify_frame(&over).is_none());
+    }
+
+    #[test]
+    fn reader_bounds_pending_buffer_and_recovers() {
+        // 反复投喂“合法但巨大、负载迟迟不来”的长度前缀，缓冲必须被钳制（防 DoS）。
+        let mut reader = FrameReader::new();
+        let header = [0x00, 0x40]; // 声称长度 = 0x4000（== MAX，未超过阈值不会触发 skip）
+        for _ in 0..100_000 {
+            reader.push(&header);
+        }
+        // 缓冲被钳制在单条最大帧大小以内，而非线性增长到 200k 字节。
+        assert!(
+            reader.pending() <= MAX_FRAME_PAYLOAD + FRAME_OVERHEAD,
+            "pending={} must be bounded",
+            reader.pending()
+        );
+        // 清理后仍能正常解析后续真帧。
+        let good = encode_frame(b"ok");
+        reader.clear();
+        let frames = reader.push(&good);
+        assert_eq!(frames, vec![b"ok".to_vec()]);
+    }
+
+    #[test]
+    fn reader_custom_max_pending_is_respected() {
+        let mut reader = FrameReader::with_max_pending(8);
+        assert_eq!(reader.max_pending(), 8);
+        reader.push(&[0x00, 0x40, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        assert!(reader.pending() <= 8, "pending={}", reader.pending());
+        reader.clear();
+        assert_eq!(reader.pending(), 0);
+    }
+
+    #[test]
+    fn reader_default_max_pending_covers_max_frame() {
+        // 默认上界应能容纳一条最大合法帧，保证最大帧可被可靠重组。
+        let reader = FrameReader::new();
+        assert_eq!(reader.max_pending(), MAX_FRAME_PAYLOAD + FRAME_OVERHEAD);
     }
 }

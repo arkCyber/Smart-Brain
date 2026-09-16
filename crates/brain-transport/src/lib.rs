@@ -38,6 +38,7 @@ pub trait FcuTransport: Send {
 pub fn open_transport(kind: &str) -> Result<Box<dyn FcuTransport>> {
     match kind {
         "mock" => Ok(Box::new(MockTransport::new())),
+        "mavlink" => Ok(Box::new(MavLinkTransport::new())),
         "udp" => Ok(Box::new(UdpTransport::connect(
             "127.0.0.1:14550",
             "127.0.0.1:14555",
@@ -87,6 +88,20 @@ mod tests {
         .unwrap();
         // 尚未收到对端遥测 -> None（不 panic）。
         let _ = t.try_recv_telemetry();
+        t.shutdown();
+    }
+
+    #[test]
+    fn open_transport_mavlink_roundtrip() {
+        let mut t = open_transport("mavlink").unwrap();
+        t.send_command(&Command {
+            timestamp: 1,
+            mode: Mode::Loiter,
+            target: CommandTarget::None,
+        })
+        .unwrap();
+        // MAVLink 内存桥：发送后无对端遥测 -> None（不 panic）。
+        assert!(t.try_recv_telemetry().unwrap().is_none());
         t.shutdown();
     }
 

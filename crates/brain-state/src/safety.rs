@@ -24,7 +24,7 @@ pub struct Geofence {
 }
 
 impl Default for Geofence {
-    /// 默认：以原点为 home、半径 1000m、高度 [0, 500]m（宽松边界）。
+    /// 默认：以原点为 home、半径 1000m、高度 `[0, 500]`m（宽松边界）。
     fn default() -> Self {
         Self {
             home: Vec3::ZERO,

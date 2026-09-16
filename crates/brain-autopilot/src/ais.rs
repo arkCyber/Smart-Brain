@@ -10,6 +10,8 @@
 
 use brain_core::Vec3;
 
+use crate::colregs::{Propulsion, VesselPose};
+
 /// AIS 6-bit 字符字母表（索引即 6-bit 值，0 为 `@` 填充/终止符）。
 const SIXBIT_ALPHABET: &[u8] =
     b"@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_ !\"#$%&'()*+,-./0123456789:;<=>?";
@@ -38,7 +40,10 @@ impl core::fmt::Display for AisError {
                 write!(f, "multipart AIS message (fragments={total}) not supported")
             }
             AisError::InvalidPayload(msg) => write!(f, "invalid AIS payload: {msg}"),
-            AisError::Truncated { msg_type, have_bits } => {
+            AisError::Truncated {
+                msg_type,
+                have_bits,
+            } => {
                 write!(f, "AIS type {msg_type} truncated: have {have_bits} bits")
             }
         }
@@ -131,7 +136,9 @@ pub enum AisMessage {
     PositionReport(PositionReport),
     StaticVoyage(StaticVoyageData),
     /// 其他暂不解析的报文类型（保留类型号）。
-    Other { msg_type: u8 },
+    Other {
+        msg_type: u8,
+    },
 }
 
 impl AisMessage {
@@ -172,6 +179,29 @@ pub fn to_local_offset(ref_lon: f32, ref_lat: f32, lon: f32, lat: f32) -> Vec3 {
     let m_per_deg_lat = std::f32::consts::PI * EARTH_RADIUS_M / 180.0;
     let m_per_deg_lon = m_per_deg_lat * ref_lat.to_radians().cos();
     Vec3::new(dlon_deg * m_per_deg_lon, dlat_deg * m_per_deg_lat, 0.0)
+}
+
+/// 把一条 AIS 位置报告相对本船（参考经纬度）转为局部 `VesselPose`（x=东, y=北），
+/// 供 [`crate::colregs::Colregs::classify_many`] 做多目标协同避让。
+///
+/// AIS 的 COG 是相对真北、顺时针的度数（0=北、90=东）；本框架 `VesselPose` 的航向
+/// 是 `atan2(y=北, x=东)` 弧度，故局部航向 = `π/2 − COG`。无法获得位置时返回 `None`。
+pub fn ais_to_vessel_pose(
+    own_lon: f32,
+    own_lat: f32,
+    msg: &AisMessage,
+    propulsion: Propulsion,
+) -> Option<VesselPose> {
+    let (lon, lat) = msg.position()?;
+    let off = to_local_offset(own_lon, own_lat, lon, lat);
+    let cog_deg = msg.motion().map(|(_, c)| c).unwrap_or(0.0);
+    let heading = std::f32::consts::FRAC_PI_2 - cog_deg.to_radians();
+    Some(VesselPose {
+        x: off.x,
+        y: off.y,
+        heading,
+        propulsion,
+    })
 }
 
 /// 从一句 `!AIVDM` 语句中提取 6-bit 负载字符串。
@@ -278,7 +308,11 @@ fn sixbit_str(bytes: &[u8], start_bits: u32, nchars: u32) -> String {
 }
 
 /// 解码位置报告（类型 1/2/3 或 18）。
-fn decode_pos_report(bytes: &[u8], msg_type: u8, class_b: bool) -> Result<PositionReport, AisError> {
+fn decode_pos_report(
+    bytes: &[u8],
+    msg_type: u8,
+    class_b: bool,
+) -> Result<PositionReport, AisError> {
     // 先校验 MMSI 字段（位 8..37）可达，避免短负载越界。
     need(bytes, msg_type, 8, 30)?;
     let mmsi = bits(bytes, 8, 30);
@@ -296,11 +330,31 @@ fn decode_pos_report(bytes: &[u8], msg_type: u8, class_b: bool) -> Result<Positi
             class_b: true,
             mmsi,
             nav_status: NavStatus::Other,
-            sog_knots: if sog_raw == 1023 { -1.0 } else { sog_raw as f32 / 10.0 },
-            cog_deg: if cog_raw == 3600 { -1.0 } else { cog_raw as f32 / 10.0 },
-            heading_deg: if heading_raw == 511 { None } else { Some(heading_raw as f32) },
-            longitude_deg: if lon == 181 * 600_000 { None } else { Some(lon as f32 / 600_000.0) },
-            latitude_deg: if lat == 91 * 600_000 { None } else { Some(lat as f32 / 600_000.0) },
+            sog_knots: if sog_raw == 1023 {
+                -1.0
+            } else {
+                sog_raw as f32 / 10.0
+            },
+            cog_deg: if cog_raw == 3600 {
+                -1.0
+            } else {
+                cog_raw as f32 / 10.0
+            },
+            heading_deg: if heading_raw == 511 {
+                None
+            } else {
+                Some(heading_raw as f32)
+            },
+            longitude_deg: if lon == 181 * 600_000 {
+                None
+            } else {
+                Some(lon as f32 / 600_000.0)
+            },
+            latitude_deg: if lat == 91 * 600_000 {
+                None
+            } else {
+                Some(lat as f32 / 600_000.0)
+            },
             timestamp_s: ts,
         })
     } else {
@@ -320,11 +374,31 @@ fn decode_pos_report(bytes: &[u8], msg_type: u8, class_b: bool) -> Result<Positi
             class_b: false,
             mmsi,
             nav_status: nav,
-            sog_knots: if sog_raw == 1023 { -1.0 } else { sog_raw as f32 / 10.0 },
-            cog_deg: if cog_raw == 3600 { -1.0 } else { cog_raw as f32 / 10.0 },
-            heading_deg: if heading_raw == 511 { None } else { Some(heading_raw as f32) },
-            longitude_deg: if lon == 181 * 600_000 { None } else { Some(lon as f32 / 600_000.0) },
-            latitude_deg: if lat == 91 * 600_000 { None } else { Some(lat as f32 / 600_000.0) },
+            sog_knots: if sog_raw == 1023 {
+                -1.0
+            } else {
+                sog_raw as f32 / 10.0
+            },
+            cog_deg: if cog_raw == 3600 {
+                -1.0
+            } else {
+                cog_raw as f32 / 10.0
+            },
+            heading_deg: if heading_raw == 511 {
+                None
+            } else {
+                Some(heading_raw as f32)
+            },
+            longitude_deg: if lon == 181 * 600_000 {
+                None
+            } else {
+                Some(lon as f32 / 600_000.0)
+            },
+            latitude_deg: if lat == 91 * 600_000 {
+                None
+            } else {
+                Some(lat as f32 / 600_000.0)
+            },
             timestamp_s: ts,
         })
     }
@@ -365,10 +439,12 @@ pub fn decode(sentence: &str) -> Result<AisMessage, AisError> {
     let bytes = decode_6bit(&payload)?;
     let msg_type = bits(&bytes, 0, 6) as u8;
     match msg_type {
-        1 | 2 | 3 => Ok(AisMessage::PositionReport(decode_pos_report(
+        1..=3 => Ok(AisMessage::PositionReport(decode_pos_report(
             &bytes, msg_type, false,
         )?)),
-        18 => Ok(AisMessage::PositionReport(decode_pos_report(&bytes, msg_type, true)?)),
+        18 => Ok(AisMessage::PositionReport(decode_pos_report(
+            &bytes, msg_type, true,
+        )?)),
         5 => Ok(AisMessage::StaticVoyage(decode_static(&bytes)?)),
         other => Ok(AisMessage::Other { msg_type: other }),
     }
@@ -391,7 +467,7 @@ mod tests {
         for (val, nbits) in fields {
             push_bits(&mut bits_buf, *val, *nbits);
         }
-        while bits_buf.len() % 6 != 0 {
+        while !bits_buf.len().is_multiple_of(6) {
             bits_buf.push(0);
         }
         bits_buf
@@ -471,7 +547,9 @@ mod tests {
         let lat_raw = (40.01234f32 * 600_000.0) as i32;
         let payload = mk_type1(123_456_789, 0, lon_raw, lat_raw, 0, 511);
         let msg = decode(&format!("!AIVDM,1,1,,A,{payload},0")).unwrap();
-        let AisMessage::PositionReport(p) = msg else { panic!() };
+        let AisMessage::PositionReport(p) = msg else {
+            panic!()
+        };
         assert!((p.longitude_deg.unwrap() - (-73.98765)).abs() < 1e-4);
         assert!((p.latitude_deg.unwrap() - 40.01234).abs() < 1e-4);
         assert_eq!(p.heading_deg, None); // 511 = 不可用
@@ -481,7 +559,9 @@ mod tests {
     fn not_available_sog_cog() {
         let payload = mk_type1(111_111_111, 1023, 0, 0, 3600, 511);
         let msg = decode(&format!("!AIVDM,1,1,,B,{payload},0")).unwrap();
-        let AisMessage::PositionReport(p) = msg else { panic!() };
+        let AisMessage::PositionReport(p) = msg else {
+            panic!()
+        };
         assert!(p.sog_knots < 0.0);
         assert!(p.cog_deg < 0.0);
         assert_eq!(p.heading_deg, None);
@@ -494,12 +574,12 @@ mod tests {
         let lon_raw = (-80.123f32 * 600_000.0) as i32;
         let lat_raw = (26.5f32 * 600_000.0) as i32;
         let payload = encode_payload(&[
-            (18, 6),    // type
-            (0, 2),     // repeat
+            (18, 6), // type
+            (0, 2),  // repeat
             (mmsi, 30),
-            (0, 8),     // reserved
-            (250, 10),  // SOG = 25.0 kn
-            (0, 1),     // acc
+            (0, 8),    // reserved
+            (250, 10), // SOG = 25.0 kn
+            (0, 1),    // acc
             (lon_raw as u32, 28),
             (lat_raw as u32, 27),
             (1200, 12), // COG = 120.0°
@@ -507,7 +587,9 @@ mod tests {
             (0, 6),     // ts
         ]);
         let msg = decode(&format!("!AIVDM,1,1,,A,{payload},0")).unwrap();
-        let AisMessage::PositionReport(p) = msg else { panic!() };
+        let AisMessage::PositionReport(p) = msg else {
+            panic!()
+        };
         assert_eq!(p.msg_type, 18);
         assert!(p.class_b);
         assert_eq!(p.nav_status, NavStatus::Other);
@@ -519,7 +601,10 @@ mod tests {
 
     #[test]
     fn rejects_non_ais_sentence() {
-        assert!(matches!(decode("$GPGGA,123"), Err(AisError::NotAisSentence)));
+        assert!(matches!(
+            decode("$GPGGA,123"),
+            Err(AisError::NotAisSentence)
+        ));
     }
 
     #[test]
@@ -555,7 +640,21 @@ mod tests {
         assert!(off.y > 50_000.0 && off.y < 60_000.0, "north={}", off.y);
         assert_eq!(off.z, 0.0);
     }
+
+    #[test]
+    fn ais_to_vessel_pose_converts_position_and_heading() {
+        // 本船 (20°N, 20°E)，目标在其正北约 10m、朝北航行（COG=0°）。
+        let mmsi = 366_999_000u32;
+        let lat_raw = ((20.0 + 10.0 / 111_320.0) * 600_000.0) as i32; // 北移 10m
+        let lon_raw = (20.0f32 * 600_000.0) as i32; // 经度与本船相同
+        let payload = mk_type1(mmsi, 0, lon_raw, lat_raw, 0, 0); // COG=0（朝北）
+        let msg = decode(&format!("!AIVDM,1,1,,B,{payload},0")).unwrap();
+
+        let vp = ais_to_vessel_pose(20.0, 20.0, &msg, Propulsion::PowerDriven).unwrap();
+        // 目标在正北方 ~10m → x≈0、y≈10。
+        assert!(vp.x.abs() < 1.0, "x={}", vp.x);
+        assert!(vp.y > 9.0 && vp.y < 11.0, "y={}", vp.y);
+        // COG=0（北）→ 局部航向 π/2（atan2 坐标系指北）。
+        assert!((vp.heading - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
+    }
 }
-
-
-

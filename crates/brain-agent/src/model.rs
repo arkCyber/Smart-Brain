@@ -2,7 +2,7 @@
 
 use brain_core::Result;
 
-use crate::types::{Message, ToolCall};
+use crate::types::{Message, Role, ToolCall};
 
 /// 模型一次生成的结果：要么直接给最终答复，要么请求调用工具。
 #[derive(Debug, Clone)]
@@ -65,6 +65,29 @@ impl Model for MockModel {
     }
 }
 
+/// 极简确定性后端：把“最后一条用户消息”原样作为最终答复。
+///
+/// 无需剧本、零配置、离线可用，用于接线/冒烟测试，以及 [`crate::factory::build_model`]
+/// 里 `mock` 后端的默认实现。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct EchoModel;
+
+impl Model for EchoModel {
+    fn generate(&mut self, history: &[Message]) -> Result<ModelOutput> {
+        let reply = history
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| m.content.clone())
+            .unwrap_or_else(|| "ok".to_string());
+        Ok(ModelOutput::Text(reply))
+    }
+
+    fn name(&self) -> &str {
+        "mock"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +98,23 @@ mod tests {
         assert!(matches!(m.generate(&[]).unwrap(), ModelOutput::ToolCall(_)));
         assert!(matches!(m.generate(&[]).unwrap(), ModelOutput::ToolCall(_)));
         assert!(matches!(m.generate(&[]).unwrap(), ModelOutput::Text(s) if s == "ok"));
+    }
+
+    #[test]
+    fn echo_returns_last_user_message() {
+        let mut e = EchoModel;
+        assert_eq!(e.name(), "mock");
+        let history = vec![
+            Message::system("sys"),
+            Message::user("hello"),
+            Message::assistant("hi"),
+            Message::user("again"),
+        ];
+        assert!(matches!(e.generate(&history).unwrap(), ModelOutput::Text(t) if t == "again"));
+        // 无用户消息时回退到 "ok"。
+        assert!(matches!(
+            e.generate(&[Message::system("sys")]).unwrap(),
+            ModelOutput::Text(t) if t == "ok"
+        ));
     }
 }

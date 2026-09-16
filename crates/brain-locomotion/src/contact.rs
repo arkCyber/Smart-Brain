@@ -116,16 +116,26 @@ mod tests {
         let x = FootContact::resting_penetration(weight, m.config.stiffness);
         // 在该穿透深度、静止时支持力恰等于体重。
         let c = m.contact(Vec3::new(0.0, 0.0, -x), Vec3::ZERO);
-        assert!((c.normal_force - weight).abs() < 1e-3, "F={}", c.normal_force);
+        assert!(
+            (c.normal_force - weight).abs() < 1e-3,
+            "F={}",
+            c.normal_force
+        );
     }
 
     #[test]
     fn downward_velocity_increases_force() {
         let m = model();
-        let static_f = m.contact(Vec3::new(0.0, 0.0, -0.01), Vec3::ZERO).normal_force;
+        let static_f = m
+            .contact(Vec3::new(0.0, 0.0, -0.01), Vec3::ZERO)
+            .normal_force;
         // 下压 1 m/s 增大力（阻尼项 +800）。
         let moving = m.contact(Vec3::new(0.0, 0.0, -0.01), Vec3::new(0.0, 0.0, -1.0));
-        assert!(moving.normal_force > static_f + 700.0, "moving={}", moving.normal_force);
+        assert!(
+            moving.normal_force > static_f + 700.0,
+            "moving={}",
+            moving.normal_force
+        );
     }
 
     #[test]

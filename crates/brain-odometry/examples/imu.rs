@@ -18,5 +18,9 @@ fn main() {
     }
 
     // 理论位置 = 0.5·a·t² = 0.5 m
-    println!("after 1s of 1 m/s²: pos = {:?} vel = {:?}", imu.position(), imu.velocity());
+    println!(
+        "after 1s of 1 m/s²: pos = {:?} vel = {:?}",
+        imu.position(),
+        imu.velocity()
+    );
 }

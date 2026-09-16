@@ -21,14 +21,15 @@ pub mod sensor;
 pub mod world;
 
 pub use ais::{
-    AisError, AisMessage, NavStatus, PositionReport, StaticVoyageData, decode as decode_ais,
-    to_local_offset,
+    ais_to_vessel_pose, decode as decode_ais, to_local_offset, AisError, AisMessage, NavStatus,
+    PositionReport, StaticVoyageData,
 };
 pub use autopilot::{Autopilot, AutopilotConfig, RunStats, StepOutcome};
 pub use boat_autopilot::{BoatAutopilot, BoatConfig, BoatStats};
 pub use car_autopilot::{CarAutopilot, CarAutopilotConfig, CarRunStats};
 pub use colregs::{
-    Colregs, ColregsAction, ColregsParams, EncounterType, Propulsion, VesselPose, Visibility,
+    Colregs, ColregsAction, ColregsParams, Encounter, EncounterType, Propulsion, VesselPose,
+    Visibility,
 };
 pub use sensor::{RangeSensor, Scan};
 pub use world::World;

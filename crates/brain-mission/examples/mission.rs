@@ -8,9 +8,27 @@ fn main() {
     let mission = Mission::new(
         "survey-01",
         vec![
-            Waypoint { sequence: 0, north: 0.0, east: 0.0, alt: 30.0, accept_radius: 2.0 },
-            Waypoint { sequence: 1, north: 100.0, east: 0.0, alt: 30.0, accept_radius: 2.0 },
-            Waypoint { sequence: 2, north: 100.0, east: 100.0, alt: 30.0, accept_radius: 2.0 },
+            Waypoint {
+                sequence: 0,
+                north: 0.0,
+                east: 0.0,
+                alt: 30.0,
+                accept_radius: 2.0,
+            },
+            Waypoint {
+                sequence: 1,
+                north: 100.0,
+                east: 0.0,
+                alt: 30.0,
+                accept_radius: 2.0,
+            },
+            Waypoint {
+                sequence: 2,
+                north: 100.0,
+                east: 100.0,
+                alt: 30.0,
+                accept_radius: 2.0,
+            },
         ],
     );
 

@@ -17,7 +17,7 @@ pub enum AlignmentError {
 
 /// 可插值的样本类型。
 pub trait Interpolate: Clone {
-    /// 在 `self` 与 `other` 之间线性插值（t∈[0,1]）。
+    /// 在 `self` 与 `other` 之间线性插值（`t∈[0, 1]`）。
     fn lerp(&self, other: &Self, t: f32) -> Self;
 }
 

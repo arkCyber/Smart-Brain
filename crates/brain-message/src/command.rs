@@ -25,6 +25,50 @@ pub enum Mode {
     Loiter,
 }
 
+impl Mode {
+    /// 稳定字符串名（用于日志/序列化/配置/UI），保证不因字段重排改变。
+    pub fn name(self) -> &'static str {
+        match self {
+            Mode::Idle => "Idle",
+            Mode::Takeoff => "Takeoff",
+            Mode::Cruise => "Cruise",
+            Mode::Track => "Track",
+            Mode::Land => "Land",
+            Mode::ReturnHome => "ReturnHome",
+            Mode::Loiter => "Loiter",
+        }
+    }
+
+    /// 从字符串名解析（大小写不敏感）；未知返回 `None`。
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            s if s.eq_ignore_ascii_case("Idle") => Some(Mode::Idle),
+            s if s.eq_ignore_ascii_case("Takeoff") => Some(Mode::Takeoff),
+            s if s.eq_ignore_ascii_case("Cruise") => Some(Mode::Cruise),
+            s if s.eq_ignore_ascii_case("Track") => Some(Mode::Track),
+            s if s.eq_ignore_ascii_case("Land") => Some(Mode::Land),
+            s if s.eq_ignore_ascii_case("ReturnHome") => Some(Mode::ReturnHome),
+            s if s.eq_ignore_ascii_case("Loiter") => Some(Mode::Loiter),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Mode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl std::str::FromStr for Mode {
+    type Err = brain_core::BrainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_name(s)
+            .ok_or_else(|| brain_core::BrainError::Other(format!("unknown mode string: {s:?}")))
+    }
+}
+
 /// 大脑下发给飞控的控制指令。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Command {
@@ -175,5 +219,22 @@ mod tests {
         assert_eq!(json["timestamp"], 7);
         assert_eq!(json["mode"], "Takeoff");
         assert_eq!(json["target"], "None");
+    }
+
+    #[test]
+    fn mode_name_and_display() {
+        assert_eq!(Mode::Cruise.name(), "Cruise");
+        assert_eq!(format!("{}", Mode::ReturnHome), "ReturnHome");
+        // Display 应匹配序列化形状，便于日志/配置互通。
+        assert_eq!(serde_json::to_value(Mode::Loiter).unwrap(), "Loiter");
+    }
+
+    #[test]
+    fn mode_from_name_case_insensitive() {
+        assert_eq!(Mode::from_name("takeoff"), Some(Mode::Takeoff));
+        assert_eq!(Mode::from_name("RETURNHOME"), Some(Mode::ReturnHome));
+        assert_eq!(Mode::from_name("bogus"), None);
+        assert_eq!("loiter".parse::<Mode>().unwrap(), Mode::Loiter);
+        assert!("nope".parse::<Mode>().is_err());
     }
 }

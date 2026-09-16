@@ -236,4 +236,60 @@ mod tests {
         assert_eq!(evicted, Some(1));
         assert_eq!(ring.iter(), vec![2, 3]);
     }
+
+    #[test]
+    fn clear_empties_buffer() {
+        let mut r = FixedRingBuffer::<i32>::new(4).unwrap();
+        for v in [1, 2, 3] {
+            r.push(v);
+        }
+        assert_eq!(r.len(), 3);
+        r.clear();
+        assert!(r.is_empty());
+        assert_eq!(r.len(), 0);
+        assert!(r.pop_oldest().is_none());
+        assert_eq!(r.iter().count(), 0);
+        // 清空后仍可继续写入。
+        r.push(9);
+        assert_eq!(r.pop_oldest(), Some(9));
+    }
+
+    #[test]
+    fn empty_ring_pop_and_get_are_none() {
+        let mut r = FixedRingBuffer::<u8>::new(2).unwrap();
+        assert!(r.pop_oldest().is_none());
+        assert!(r.get(0).is_none());
+        assert!(r.get(5).is_none()); // 越界
+        assert_eq!(r.iter().count(), 0);
+    }
+
+    #[test]
+    fn get_bounds_are_checked() {
+        let mut r = FixedRingBuffer::<i32>::new(3).unwrap();
+        r.push(10);
+        r.push(20);
+        assert_eq!(r.get(0), Some(&10));
+        assert_eq!(r.get(1), Some(&20));
+        assert!(r.get(2).is_none()); // 越界（len=2）
+    }
+
+    #[test]
+    fn shared_ring_concurrent_push() {
+        // 8 线程并发 push：Mutex 保护下不丢数据。
+        let ring = std::sync::Arc::new(SharedRing::new(1024).unwrap());
+        let mut handles = Vec::new();
+        for t in 0..8 {
+            let ring = ring.clone();
+            handles.push(std::thread::spawn(move || {
+                for i in 0..100 {
+                    ring.push(format!("{t}:{i}"));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+        // 8 × 100 = 800 次 push，容量 1024 未溢出。
+        assert_eq!(ring.len(), 800);
+    }
 }

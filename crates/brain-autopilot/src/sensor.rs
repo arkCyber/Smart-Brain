@@ -132,7 +132,7 @@ impl RangeSensor {
         }
     }
 
-    /// 确定性噪声采样（[-1,1]），由位置 + 方位 + 种子哈希得到，保证可复现。
+    /// 确定性噪声采样（`[-1, 1]`），由位置 + 方位 + 种子哈希得到，保证可复现。
     fn sample_noise(&self, x: f32, y: f32, bearing: f32) -> f32 {
         let seed = (x.to_bits() as u64)
             ^ ((y.to_bits() as u64).wrapping_shl(17))

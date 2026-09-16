@@ -59,7 +59,7 @@ impl Vec3 {
         self - o
     }
 
-    /// 线性插值：`a + (b - a) * t`（`t` 通常 ∈ [0,1]）。
+    /// 线性插值：`a + (b - a) * t`（`t` 通常 ∈ `[0, 1]`）。
     pub fn lerp(a: Self, b: Self, t: f32) -> Self {
         a + (b - a) * t
     }

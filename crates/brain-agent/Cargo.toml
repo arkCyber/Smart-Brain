@@ -4,6 +4,12 @@ description = "Smart-Brain agent layer: Rig-style LLM agent with tool-calling an
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 brain-core.workspace = true
@@ -16,6 +22,12 @@ default = []
 # 真实 HTTP LLM 后端（OpenAI 兼容 /chat/completions）。默认关闭保持构建轻量；
 # 真机部署/接入真实模型时启用：`cargo build -p brain-agent --features http-llm`。
 http-llm = ["dep:ureq"]
+# Ollama 原生后端（本地端口 11434，/api/chat 含工具调用）。
+# 启用：`cargo build -p brain-agent --features ollama`。
+ollama = ["dep:ureq"]
+# Hermes 智能体 daemon 后端（本地端口 11438，OpenAI 兼容 /v1/chat/completions）。
+# 启用：`cargo build -p brain-agent --features hermes`。
+hermes = ["dep:ureq"]
 
 [dependencies.ureq]
 version = "2"

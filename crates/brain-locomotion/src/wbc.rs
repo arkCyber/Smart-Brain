@@ -329,6 +329,7 @@ impl WholeBodyController {
     ///   世界高度喂给接触模型；
     /// - `contact`：足-地接触模型（`ground_z` 应为 0）；
     /// - `gravity`：重力加速度（机体系，通常 `(0,0,-9.81)`）。
+    #[allow(clippy::too_many_arguments)]
     pub fn dynamic_torques(
         &self,
         target: &WholeBodyTarget,
@@ -362,13 +363,10 @@ impl WholeBodyController {
             } else {
                 Vec3::ZERO
             };
-            torques.push(self.leg_dynamics.inverse_dynamics(
-                q[i],
-                qd[i],
-                qdd[i],
-                foot_force,
-                gravity,
-            ));
+            torques.push(
+                self.leg_dynamics
+                    .inverse_dynamics(q[i], qd[i], qdd[i], foot_force, gravity),
+            );
         }
         Ok(torques)
     }
@@ -757,13 +755,10 @@ mod tests {
             .unwrap();
         let stat = c.joint_torques(&target).unwrap();
         assert_eq!(tau_dyn.len(), n);
-        for i in 0..n {
+        for (i, (d, s)) in tau_dyn.iter().zip(&stat).enumerate() {
             assert!(
-                (tau_dyn[i][0] - stat[i][0]).abs() < 1e-2
-                    && (tau_dyn[i][1] - stat[i][1]).abs() < 1e-2,
-                "leg {i}: tau_dyn={:?} stat={:?}",
-                tau_dyn[i],
-                stat[i]
+                (d[0] - s[0]).abs() < 1e-2 && (d[1] - s[1]).abs() < 1e-2,
+                "leg {i}: tau_dyn={d:?} stat={s:?}"
             );
         }
     }
@@ -790,11 +785,10 @@ mod tests {
                 Vec3::ZERO,
             )
             .unwrap();
-        for i in 0..n {
+        for (i, t) in tau_dyn.iter().enumerate() {
             assert!(
-                tau_dyn[i][0].abs() < 1e-3 && tau_dyn[i][1].abs() < 1e-3,
-                "swing leg {i} should carry no load: {:?}",
-                tau_dyn[i]
+                t[0].abs() < 1e-3 && t[1].abs() < 1e-3,
+                "swing leg {i} should carry no load: {t:?}"
             );
         }
     }
@@ -810,7 +804,15 @@ mod tests {
         // 提供错误的 q 长度 → 应报 LegCountMismatch。
         let bad_q = vec![[0.0f32; 2]; 1];
         assert!(matches!(
-            c.dynamic_torques(&target, &bad_q, &qd, &qdd, c.nominal_height, &contact, Vec3::ZERO),
+            c.dynamic_torques(
+                &target,
+                &bad_q,
+                &qd,
+                &qdd,
+                c.nominal_height,
+                &contact,
+                Vec3::ZERO
+            ),
             Err(WbcError::LegCountMismatch { .. })
         ));
     }

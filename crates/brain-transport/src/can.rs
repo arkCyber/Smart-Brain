@@ -114,6 +114,14 @@ pub fn decode_frames(base_id: u32, frames: &[CanFrame]) -> Option<Vec<u8>> {
         .filter(|f| f.id > base_id && (f.id - base_id) <= 0xff && (f.id & 0xff) != 0)
         .collect();
     frames_sorted.sort_by_key(|f| (f.id & 0xff) as u8);
+    // 校验分片序号必须连续（seq 1,2,3,...）：检测缺段/重复段，避免重排出损坏数据。
+    let mut expect = 1u8;
+    for f in &frames_sorted {
+        if (f.id & 0xff) as u8 != expect {
+            return None; // 缺段或重复段
+        }
+        expect = expect.wrapping_add(1);
+    }
     for f in frames_sorted {
         out.extend_from_slice(&f.payload()[1..]);
         if out.len() >= total {
@@ -150,6 +158,40 @@ pub fn encode_telemetry(t: &Telemetry) -> Result<Vec<CanFrame>> {
         serde_json::to_vec(t).map_err(|e| brain_core::BrainError::Transport(e.to_string()))?;
     encode_frames(CAN_TELEM_BASE_ID, &payload)
 }
+
+/// 单条遥测可占用的最大 CAN 分片数（防御重组缓冲无界增长）。
+///
+/// 一帧承载 7 字节负载，64 帧 ≈ 448 字节，远超一条遥测 JSON（通常 < 300 字节）；
+/// 该值只用于防御恶意/损坏数据导致的分片无限堆积，正常消息远不会触及。
+pub const MAX_CAN_FRAMES: usize = 64;
+
+/// 增量重组：把一帧 CAN 遥测分片累积到 `pending`，若由此得到一条完整遥测则返回 `Some`。
+///
+/// 生产防护：
+/// - 收到**新消息首帧**（`seq==0`）时若仍有未完成的旧分片，先丢弃旧分片重新对齐，
+///   避免把两条不同消息的分片混在一起导致死等/错乱；
+/// - 重组缓冲超过 [`MAX_CAN_FRAMES`] 上限时清空重来，避免垃圾数据无限堆积。
+pub fn ingest_telemetry_frame(
+    pending: &mut Vec<CanFrame>,
+    frame: CanFrame,
+) -> Result<Option<Telemetry>> {
+    // 新消息开始：丢弃上一段未完成的分片。
+    if (frame.id & 0xff) == 0 && !pending.is_empty() {
+        pending.clear();
+    }
+    pending.push(frame);
+    // 上限保护：太多分片仍未凑成一条消息 -> 清空重来。
+    if pending.len() > MAX_CAN_FRAMES {
+        pending.clear();
+        return Ok(None);
+    }
+    if let Some(t) = decode_telemetry(pending)? {
+        pending.clear();
+        return Ok(Some(t));
+    }
+    Ok(None)
+}
+
 /// 基于 Linux SocketCAN 的 `FcuTransport`（可选 `can` feature，仅 Linux）。
 pub struct CanTransport {
     #[cfg(all(feature = "can", target_os = "linux"))]
@@ -212,22 +254,23 @@ impl crate::FcuTransport for CanTransport {
     fn try_recv_telemetry(&mut self) -> Result<Option<Telemetry>> {
         #[cfg(all(feature = "can", target_os = "linux"))]
         {
-            // 非阻塞读取所有已就绪的帧并累积到重组缓冲。
+            // 非阻塞读取所有已就绪的帧，增量重组（遇新首帧自动对齐、超上限自动清空）。
             if let Some(socket) = self.socket.as_ref() {
                 loop {
                     match socket.read_frame() {
                         Ok(f) => {
                             if (f.id() & 0x300) == CAN_TELEM_BASE_ID {
-                                self.pending_telem.push(CanFrame::new(f.id(), f.data())?);
+                                let frame = CanFrame::new(f.id(), f.data())?;
+                                if let Some(t) =
+                                    ingest_telemetry_frame(&mut self.pending_telem, frame)?
+                                {
+                                    return Ok(Some(t));
+                                }
                             }
                         }
                         Err(_) => break, // 无更多数据（含 WouldBlock）
                     }
                 }
-            }
-            if let Some(t) = decode_telemetry(&self.pending_telem)? {
-                self.pending_telem.clear();
-                return Ok(Some(t));
             }
             Ok(None)
         }
@@ -314,5 +357,70 @@ mod tests {
             .cloned()
             .collect();
         assert_eq!(decode_frames(CAN_TELEM_BASE_ID, &without_first), None);
+    }
+
+    #[test]
+    fn decode_frames_rejects_duplicate_segment() {
+        // 重复段（seq==1 出现两次）会被序号连续性校验拒绝，避免重排出损坏数据。
+        let payload: Vec<u8> = (0..16u8).collect(); // seq0(5)+seq1(7)+seq2(4) = 3 帧
+        let mut frames = encode_frames(CAN_TELEM_BASE_ID, &payload).unwrap();
+        let dup = frames.iter().find(|f| (f.id & 0xff) == 1).unwrap().clone();
+        frames.push(dup);
+        assert_eq!(decode_frames(CAN_TELEM_BASE_ID, &frames), None);
+    }
+
+    #[test]
+    fn ingest_reassembles_full_message_incrementally() {
+        let t = Telemetry::default_at(3);
+        let frames = encode_telemetry(&t).unwrap();
+        let mut pending = Vec::new();
+        // 逐帧喂入：只有喂满后才产出。
+        for f in frames.iter().take(frames.len() - 1) {
+            assert_eq!(
+                ingest_telemetry_frame(&mut pending, f.clone()).unwrap(),
+                None
+            );
+        }
+        let got = ingest_telemetry_frame(&mut pending, frames.last().unwrap().clone()).unwrap();
+        assert_eq!(got, Some(t));
+        // 重组成功后缓冲应被清空。
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn ingest_resyncs_on_new_first_frame() {
+        // 第一条消息只发首帧（未完成），随后来了第二条消息的首帧 -> 应丢弃旧分片重新对齐。
+        let mut pending = Vec::new();
+        let a = encode_telemetry(&Telemetry::default_at(1)).unwrap();
+        // 只喂第一条消息的首帧，未完成。
+        let _ = ingest_telemetry_frame(&mut pending, a[0].clone()).unwrap();
+        assert_eq!(pending.len(), 1);
+        // 第二条消息完整喂入（首帧触发清空旧分片）。
+        let b = encode_telemetry(&Telemetry::default_at(2)).unwrap();
+        let mut got = None;
+        for f in &b {
+            if let Some(t) = ingest_telemetry_frame(&mut pending, f.clone()).unwrap() {
+                got = Some(t);
+            }
+        }
+        assert_eq!(got, Some(Telemetry::default_at(2)));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn ingest_caps_pending_at_max_frames() {
+        // 大量非首帧（seq!=0）且凑不成一条消息 -> 超过上限后清空重来。
+        let mut pending = Vec::new();
+        let mut fed = 0;
+        for seq in 1..=MAX_CAN_FRAMES as u8 + 5 {
+            let f = CanFrame::new(CAN_TELEM_BASE_ID | seq as u32, &[0u8; 8]).unwrap();
+            let _ = ingest_telemetry_frame(&mut pending, f).unwrap();
+            if pending.is_empty() {
+                fed = seq as usize;
+            }
+        }
+        // 上限被触发过一次：缓冲不再增长。
+        assert!(fed < MAX_CAN_FRAMES + 5, "should have hit the cap");
+        assert!(pending.is_empty() || pending.len() <= MAX_CAN_FRAMES);
     }
 }

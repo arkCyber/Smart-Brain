@@ -8,8 +8,8 @@
 //! 3. 交给 COLREGS 引擎在能见度受限（Rule 19）下给出避让动作。
 
 use brain_autopilot::{
-    Colregs, ColregsAction, ColregsParams, EncounterType, VesselPose, Visibility, decode_ais,
-    to_local_offset,
+    decode_ais, to_local_offset, Colregs, ColregsAction, ColregsParams, EncounterType, VesselPose,
+    Visibility,
 };
 use brain_core::Vec3;
 
@@ -21,7 +21,7 @@ fn encode_payload(fields: &[(u32, u32)]) -> String {
             bits.push(((val >> i) & 1) as u8);
         }
     }
-    while bits.len() % 6 != 0 {
+    while !bits.len().is_multiple_of(6) {
         bits.push(0);
     }
     bits.chunks(6)
@@ -42,18 +42,18 @@ fn main() {
     let lon = 10.0001f32; // ≈ 本船东侧约 10m
     let lat = 20.0000f32; // 与本船同纬度
     let payload = encode_payload(&[
-        (1, 6),                            // type
-        (0, 2),                            // repeat
+        (1, 6), // type
+        (0, 2), // repeat
         (mmsi, 30),
-        (0, 4),                            // nav status（在航）
-        (0, 8),                            // ROT
-        (123, 10),                         // SOG = 12.3 kn
-        (0, 1),                            // accuracy
+        (0, 4),    // nav status（在航）
+        (0, 8),    // ROT
+        (123, 10), // SOG = 12.3 kn
+        (0, 1),    // accuracy
         ((lon * 600_000.0) as i32 as u32, 28),
         ((lat * 600_000.0) as i32 as u32, 27),
-        (456, 12),                         // COG = 45.6°
-        (90, 9),                           // heading
-        (0, 6),                            // ts
+        (456, 12), // COG = 45.6°
+        (90, 9),   // heading
+        (0, 6),    // ts
     ]);
     let sentence = format!("!AIVDM,1,1,,B,{payload},0*00");
 

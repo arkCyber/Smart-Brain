@@ -85,7 +85,11 @@ impl CommBackend for ZenohBackend {
                         .unwrap_or_default()
                         .into_owned()
                         .into_bytes();
-                    let s = Sample::new(sample.key_expr().to_string(), payload, 0);
+                    let ts = sample
+                        .timestamp()
+                        .map(|t| t.get_time().as_nanos())
+                        .unwrap_or(0);
+                    let s = Sample::new(sample.key_expr().to_string(), payload, ts);
                     if tx.send(s).is_err() {
                         break;
                     }
@@ -135,7 +139,13 @@ impl CommBackend for ZenohBackend {
         let handler = handler.clone();
         // Zenoh 的 queryable 回调是同步的；把“计算 + 应答”spawn 到运行时。
         let cb = move |query: zenoh::query::Query| {
-            let values = handler(&cb_key);
+            let values = match handler(&cb_key) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::warn!("[zenoh] queryable {cb_key:?} error: {e}");
+                    Vec::new()
+                }
+            };
             let key = cb_key.clone();
             let rt = rt.clone();
             rt.spawn(async move {

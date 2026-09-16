@@ -8,7 +8,7 @@ pub mod error;
 pub mod math;
 pub mod time;
 
-pub use config::BrainConfig;
+pub use config::{AgentConfig, BrainConfig, HermesConfig, OllamaConfig};
 pub use error::{BrainError, Result};
 pub use math::{Pose, Quat, Vec3};
 pub use time::{

@@ -9,18 +9,42 @@ use brain_core::Result;
 use crate::core::{Reply, Sample, Value};
 
 /// 计算/服务处理器：收到查询时返回若干应答值（由后端路由回查询方）。
-pub type QueryHandler = Arc<dyn Fn(&str) -> Vec<Value> + Send + Sync>;
+///
+/// 返回 `Err` 表示该次计算失败——后端会记录日志并跳过该应答，而不会崩溃
+/// 查询方（与 handler panic 同样被隔离）。
+pub type QueryHandler = Arc<dyn Fn(&str) -> Result<Vec<Value>> + Send + Sync>;
 
 /// 一个订阅：从通道接收 `Sample`。
 pub struct Subscription {
     rx: Receiver<Sample>,
     /// 对应键表达式（用于日志/校验）。
     key: String,
+    /// 可选退订回调：调用后从后端移除该订阅（主动退订；`Drop` 时也会触发）。
+    unsubscribe: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl Subscription {
+    /// 构造无退订回调的订阅（用于无法主动注销的后端/测试）。
+    #[cfg_attr(not(feature = "real-zenoh"), allow(dead_code))]
     pub(crate) fn new(key: String, rx: Receiver<Sample>) -> Self {
-        Self { rx, key }
+        Self {
+            rx,
+            key,
+            unsubscribe: None,
+        }
+    }
+
+    /// 构造带退订回调的订阅（生产后端用它实现主动注销）。
+    pub(crate) fn with_unsubscribe(
+        key: String,
+        rx: Receiver<Sample>,
+        unsubscribe: Arc<dyn Fn() + Send + Sync>,
+    ) -> Self {
+        Self {
+            rx,
+            key,
+            unsubscribe: Some(unsubscribe),
+        }
     }
 
     /// 阻塞接收一条样本。
@@ -43,6 +67,19 @@ impl Subscription {
     /// 订阅的键表达式。
     pub fn key(&self) -> &str {
         &self.key
+    }
+
+    /// 主动退订（幂等）。`Drop` 时也会自动调用。
+    pub fn unsubscribe(&self) {
+        if let Some(f) = &self.unsubscribe {
+            f();
+        }
+    }
+}
+
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        self.unsubscribe();
     }
 }
 

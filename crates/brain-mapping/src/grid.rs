@@ -63,7 +63,7 @@ fn state_from_log_odds(lo: f32, occ: f32, free: f32) -> CellState {
 }
 
 /// 概率 3D 占据网格（log-odds 存储，初始为 0 = 未知）。
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct OccupancyGrid3D {
     config: GridConfig,
     /// 网格最小角的世界坐标。
@@ -343,5 +343,63 @@ mod tests {
             inflated.state(Index3::new(5, 3, 0)),
             Some(CellState::Unknown)
         );
+    }
+
+    #[test]
+    fn counts_reflect_three_states() {
+        let cfg = GridConfig::from_world_size(1.0, 4.0, 4.0, 4.0);
+        let mut g = OccupancyGrid3D::new(cfg);
+        // 初始全部未知：4*4*4 = 64。
+        assert_eq!(g.counts(), (0, 0, 64));
+        g.set_log_odds(Index3::new(0, 0, 0), 2.0); // occupied
+        g.set_log_odds(Index3::new(1, 0, 0), -2.0); // free
+        let (free, occ, unk) = g.counts();
+        assert_eq!((free, occ, unk), (1, 1, 62));
+    }
+
+    #[test]
+    fn frontiers_found_where_free_touches_unknown() {
+        let cfg = GridConfig::from_world_size(1.0, 4.0, 4.0, 1.0);
+        let mut g = OccupancyGrid3D::new(cfg);
+        // 左上 3x3 标为空闲，外圈接触未知区域。
+        for x in 0..3 {
+            for y in 0..3 {
+                g.set_log_odds(Index3::new(x, y, 0), -2.0);
+            }
+        }
+        let f = g.frontiers();
+        assert!(!f.is_empty(), "free block edge should yield frontiers");
+        for idx in &f {
+            assert_eq!(g.state(*idx), Some(CellState::Free));
+        }
+    }
+
+    #[test]
+    fn setters_and_getters_bounds() {
+        let cfg = GridConfig::from_world_size(1.0, 2.0, 2.0, 2.0);
+        let mut g = OccupancyGrid3D::new(cfg);
+        assert!(g.set_log_odds(Index3::new(0, 0, 0), 0.5));
+        assert_eq!(g.log_odds(Index3::new(0, 0, 0)), Some(0.5));
+        // 越界：写入返回 false，读取返回 None（不 panic）。
+        assert!(!g.set_log_odds(Index3::new(9, 0, 0), 2.0));
+        assert!(!g.set_log_odds(Index3::new(-1, 0, 0), 2.0));
+        assert_eq!(g.log_odds(Index3::new(9, 0, 0)), None);
+        assert_eq!(g.state(Index3::new(0, 5, 0)), None);
+    }
+
+    #[test]
+    fn occupied_free_unknown_semantics() {
+        let cfg = GridConfig::from_world_size(1.0, 3.0, 3.0, 3.0);
+        let mut g = OccupancyGrid3D::new(cfg);
+        g.set_log_odds(Index3::new(1, 1, 0), 2.0); // occupied
+        g.set_log_odds(Index3::new(0, 0, 0), -2.0); // free
+                                                    // 未知点：既非 occupied 也非 free。
+        assert!(!g.is_occupied(Vec3::new(2.5, 2.5, 2.5)));
+        assert!(!g.is_free(Vec3::new(2.5, 2.5, 2.5)));
+        assert!(g.is_occupied(Vec3::new(1.5, 1.5, 0.5)));
+        assert!(g.is_free(Vec3::new(0.5, 0.5, 0.5)));
+        // 越界点：两者皆否（不 panic）。
+        assert!(!g.is_occupied(Vec3::new(99.0, 0.0, 0.0)));
+        assert!(!g.is_free(Vec3::new(99.0, 0.0, 0.0)));
     }
 }

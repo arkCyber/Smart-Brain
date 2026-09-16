@@ -76,6 +76,45 @@ impl ToolCall {
     }
 }
 
+/// 对话角色 → 传输层角色字符串（供 HTTP/Ollama 后端复用）。
+pub fn role_str(role: Role) -> &'static str {
+    match role {
+        Role::System => "system",
+        Role::User => "user",
+        Role::Assistant => "assistant",
+        Role::Tool => "tool",
+    }
+}
+
+/// 一个 OpenAI/Ollama 风格的工具定义（JSON Schema 精简版）。
+///
+/// 传给模型，让它可以决定何时调用某个工具。`parameters` 为可选的 JSON Schema；
+/// 缺省时许多模型也能自行生成 `arguments`（name/description 足够）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolSchema {
+    name: String,
+    description: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<serde_json::Value>,
+}
+
+impl ToolSchema {
+    /// 用名字与描述构造一个工具定义。
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters: None,
+        }
+    }
+
+    /// 追加一个 JSON Schema 作为参数定义。
+    pub fn with_parameters(mut self, parameters: serde_json::Value) -> Self {
+        self.parameters = Some(parameters);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

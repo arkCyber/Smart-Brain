@@ -11,14 +11,39 @@
 ## 运行方式
 
 ```bash
-# 完整任务演示（SITL）：起飞 → 巡航 → 发现并跟踪目标 → 降落 → 返回地面
-# 随后演示 Fail-safe 看门狗在"大脑卡死"时强制进入自动悬停
+# 默认：依序运行全部演示（SITL），最后打印总耗时
 cargo run -p brain-node
 
-# 其余演示以 cfg 编译，启用对应模块即可运行
+# 只运行某个演示（见 --list）
+cargo run -p brain-node -- --demo failsafe
+cargo run -p brain-node -- --demo mission --iterations 30
+
+# 列出可用演示 / 帮助 / 版本
+cargo run -p brain-node -- --list
+cargo run -p brain-node -- --help
+cargo run -p brain-node -- --version
+
+# 显式指定配置文件（优先于 $SMART_BRAIN_CONFIG 与 config.json）
+cargo run -p brain-node -- --config /path/to/config.json
+
+# tokio 异步流水线（需编译时启用 feature）
+cargo run -p brain-node --features async -- --demo async
 ```
 
-**配置加载**：依次尝试环境变量 `SMART_BRAIN_CONFIG` → `config.json` → `config.example.json` → 内置默认值。
+**CLI 参数**：
+
+| 参数 | 说明 |
+|------|------|
+| `--demo <name>` | 只运行指定演示（见 `--list`）；未知名称退出码 2 |
+| `--list` | 列出所有可用演示并退出 |
+| `--config <path>` | 配置文件路径（优先级：`--config` > `$SMART_BRAIN_CONFIG` > `config.json` > `config.example.json` > 内置默认） |
+| `--iterations <n>` | mission 演示的 tick 数（默认 30，必须 > 0） |
+| `-h, --help` | 打印帮助 |
+| `-V, --version` | 打印版本 |
+
+**退出码**：`0` 成功；`1` 配置无效；`2` 用法错误/未知演示。
+
+**配置加载**：依次尝试 `--config` → 环境变量 `SMART_BRAIN_CONFIG` → `config.json` → `config.example.json` → 内置默认值。
 
 ## 主要演示（`src/`）
 

@@ -10,7 +10,7 @@ use brain_message::CommandTarget;
 ///
 /// 结构（根为选择器）：
 ///   ├─ A) 正常任务序列
-///   │     LogNode → Takeoff → Cruise → [检测并跟踪 | 返航] → Land
+///   │     LogNode → Takeoff → Cruise → `[检测并跟踪 | 返航]` → Land
 ///   └─ B) Fail-safe 兜底（若上层触发，强制 Loiter）
 pub fn build_mission_tree() -> Box<dyn Node> {
     Box::new(Selector::new(vec![

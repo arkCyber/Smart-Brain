@@ -14,9 +14,14 @@ mod car_driving_demo;
 mod comprehensive_demo;
 mod embodiment;
 mod generic_demo;
+#[cfg(feature = "hermes")]
+mod hermes_demo;
 mod indoor;
 mod kalman_demo;
 mod locomotion_sim_demo;
+mod model_factory;
+#[cfg(feature = "ollama")]
+mod ollama_demo;
 mod parallel;
 mod safety_guard;
 mod stereo_demo;
@@ -34,7 +39,7 @@ use brain_core::Vec3;
 use brain_message::{Command, CommandTarget, Mode, Telemetry};
 use brain_middleware::bus::topics;
 use brain_middleware::DataBus;
-use brain_mission::{Mission, SwarmLink, SwarmRole, SwarmShare, Waypoint};
+use brain_mission::{SwarmLink, SwarmRole, SwarmShare};
 use brain_perception::backend::MockModelBackend;
 use brain_perception::pipeline::{VisionConfig, VisionPipeline};
 use brain_state::safety::{BatteryMonitor, Geofence, PreArmCheck, PreArmConfig};
@@ -74,34 +79,7 @@ fn run_mission_demo(iterations: usize, cfg: &BrainConfig) {
     let mut state_machine = StateMachine::new();
     let mut watchdog = FailsafeWatchdog::new(cfg.failsafe_timeout_ms);
 
-    // ---- 任务层：航线规划与蜂群链路 ----
-    let mission = Mission::new(
-        "survey-01",
-        vec![
-            Waypoint {
-                sequence: 0,
-                north: 0.0,
-                east: 0.0,
-                alt: 30.0,
-                accept_radius: 2.0,
-            },
-            Waypoint {
-                sequence: 1,
-                north: 80.0,
-                east: 0.0,
-                alt: 30.0,
-                accept_radius: 2.0,
-            },
-            Waypoint {
-                sequence: 2,
-                north: 80.0,
-                east: 80.0,
-                alt: 30.0,
-                accept_radius: 2.0,
-            },
-        ],
-    );
-    let _ = &mission;
+    // ---- 任务层：蜂群链路（航点任务由行为树 / `comprehensive_demo` 承担）----
     let swarm = SwarmLink::new(&cfg.node_id, SwarmRole::Leader);
 
     // ---- 决策层：行为树 ----
@@ -276,85 +254,308 @@ fn demonstrate_failsafe(timeout_ms: u64) {
     }
 }
 
+/// 可用演示注册表（名称 → 描述），供 `--demo` / `--list` 使用。
+const DEMOS: &[(&str, &str)] = &[
+    (
+        "mission",
+        "完整任务闭环（SITL）：起飞→巡航→发现目标→跟踪→降落",
+    ),
+    ("failsafe", "Fail-safe 看门狗：心跳中断强制自动悬停"),
+    ("embodiment", "具身抽象：把无人机包装成 RobotBody 驱动"),
+    ("indoor", "室内无 GPS 自主避障（视觉定位）"),
+    ("zenoh", "Zenoh 统一通信（Pub/Sub + Store/Query + Compute）"),
+    ("autopilot", "闭环自主导航（感知→建图→规划→驱动→回溯）"),
+    ("car", "汽车驾驶导航（阿克曼 / Ackermann DWA / 自行车模型）"),
+    ("boat", "水面自动驾驶艇（双差速 / 水流漂移 / 定泊）"),
+    ("zenoh_fcu", "小脑（飞控）经 Zenoh 桥接"),
+    ("agent", "Agent / LLM 思考层（工具调用）"),
+    ("kalman", "卡尔曼传感器融合（IMU + VO）"),
+    ("locomotion", "步态 + 仿真集成（四足行走）"),
+    ("time_sync", "NTP 风格时间同步"),
+    ("stereo", "双目立体视觉（视差 → 点云）"),
+    ("generic", "通用状态机 + 通用传感器话题"),
+    ("parallel", "多线程并行流水线（感知 + 决策）"),
+    ("model", "模型后端工厂（按配置选 mock/ollama/hermes）"),
+    ("safety", "安全监督器（geofence / 电量 / pre-arm）"),
+    ("swarm", "蜂群协同（Leader 选举 + 任务分配）"),
+    ("comprehensive", "综合任务（任务文件→执行→蜂群→MAVLink）"),
+];
+
+/// 仅在 `--features async` 下可用的演示。
+#[cfg(feature = "async")]
+const DEMOS_ASYNC: &[(&str, &str)] = &[("async", "tokio 异步任务并发")];
+
+/// 仅在 `--features ollama` 下可用的演示。
+#[cfg(feature = "ollama")]
+const DEMOS_OLLAMA: &[(&str, &str)] = &[("ollama", "Ollama 推理（端口 11434 / 工具调用）")];
+
+/// 仅在 `--features hermes` 下可用的演示。
+#[cfg(feature = "hermes")]
+const DEMOS_HERMES: &[(&str, &str)] =
+    &[("hermes", "Hermes 智能体 daemon（端口 11438 / OpenAI 兼容）")];
+
+/// 命令行参数。
+struct Args {
+    demo: Option<String>,
+    config: Option<String>,
+    iterations: usize,
+    list: bool,
+    help: bool,
+    version: bool,
+}
+
+/// 解析命令行参数（无第三方依赖）。
+fn parse_args() -> Result<Args, String> {
+    parse_args_from(std::env::args().skip(1))
+}
+
+/// 从迭代器解析参数（与 `std::env::args` 解耦，便于单元测试）。
+fn parse_args_from<I: IntoIterator<Item = String>>(raw: I) -> Result<Args, String> {
+    let mut out = Args {
+        demo: None,
+        config: None,
+        iterations: 30,
+        list: false,
+        help: false,
+        version: false,
+    };
+    let mut it = raw.into_iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "-h" | "--help" => out.help = true,
+            "-V" | "--version" => out.version = true,
+            "--list" => out.list = true,
+            "--demo" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| "--demo requires a name".to_string())?;
+                out.demo = Some(v);
+            }
+            "--config" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| "--config requires a path".to_string())?;
+                out.config = Some(v);
+            }
+            "--iterations" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| "--iterations requires a number".to_string())?;
+                out.iterations = v.parse().map_err(|_| format!("invalid iterations: {v}"))?;
+                if out.iterations == 0 {
+                    return Err("iterations must be > 0".into());
+                }
+            }
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+    Ok(out)
+}
+
+fn print_help() {
+    println!(
+        "Smart-Brain main executable\n\
+         \n\
+         USAGE:\n    brain-node [OPTIONS]\n\
+         \n\
+         OPTIONS:\n    --demo <name>       Run a single demo (see --list)\n    --list              List available demos\n    --config <path>     Path to config file (overrides $SMART_BRAIN_CONFIG)\n    --iterations <n>    Ticks for the mission demo (default 30)\n    -h, --help          Print help\n    -V, --version       Print version\n"
+    );
+}
+
+fn list_demos() {
+    println!("available demos:");
+    for (name, desc) in DEMOS {
+        println!("  {name:<14} {desc}");
+    }
+    #[cfg(feature = "async")]
+    for (name, desc) in DEMOS_ASYNC {
+        println!("  {name:<14} {desc} (--features async)");
+    }
+    #[cfg(feature = "ollama")]
+    for (name, desc) in DEMOS_OLLAMA {
+        println!("  {name:<14} {desc} (--features ollama)");
+    }
+    #[cfg(feature = "hermes")]
+    for (name, desc) in DEMOS_HERMES {
+        println!("  {name:<14} {desc} (--features hermes)");
+    }
+}
+
+/// 按名称运行一个演示；返回是否找到。
+fn run_demo_by_name(name: &str, cfg: &BrainConfig, iterations: usize) -> bool {
+    match name {
+        "mission" => run_mission_demo(iterations, cfg),
+        "failsafe" => demonstrate_failsafe(cfg.failsafe_timeout_ms),
+        "embodiment" => embodiment::demonstrate(0),
+        "indoor" => indoor::run(),
+        "zenoh" => zenoh_demo::run(),
+        "autopilot" => autopilot_demo::run(),
+        "car" => car_driving_demo::run(),
+        "boat" => boat_demo::run(),
+        "zenoh_fcu" => zenoh_fcu_demo::run(),
+        "agent" => agent_demo::run(),
+        "kalman" => kalman_demo::run(),
+        "locomotion" => locomotion_sim_demo::run(),
+        "time_sync" => time_sync_demo::run(),
+        "stereo" => stereo_demo::run(),
+        "generic" => generic_demo::run(),
+        "parallel" => parallel::run_parallel_demo(),
+        "safety" => safety_guard::run_safety_demo(),
+        "swarm" => swarm_coord_demo::run(),
+        "comprehensive" => comprehensive_demo::run(),
+        "model" => model_factory::run(cfg),
+        #[cfg(feature = "async")]
+        "async" => async_runtime::run(),
+        #[cfg(feature = "ollama")]
+        "ollama" => ollama_demo::run(cfg),
+        #[cfg(feature = "hermes")]
+        "hermes" => hermes_demo::run(cfg),
+        _ => return false,
+    }
+    true
+}
+
+/// 依序运行全部演示（默认行为，与旧版一致）。
+fn run_all_demos(cfg: &BrainConfig, iterations: usize) {
+    for (name, _) in DEMOS {
+        run_demo_by_name(name, cfg, iterations);
+    }
+    #[cfg(feature = "async")]
+    for (name, _) in DEMOS_ASYNC {
+        run_demo_by_name(name, cfg, iterations);
+    }
+    #[cfg(feature = "ollama")]
+    for (name, _) in DEMOS_OLLAMA {
+        run_demo_by_name(name, cfg, iterations);
+    }
+    #[cfg(feature = "hermes")]
+    for (name, _) in DEMOS_HERMES {
+        run_demo_by_name(name, cfg, iterations);
+    }
+}
+
+/// 加载配置：`--config` > `$SMART_BRAIN_CONFIG` > `config.json` > `config.example.json` > 默认。
+fn load_config(explicit: Option<&str>) -> BrainConfig {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Some(p) = explicit {
+        candidates.push(p.to_string());
+    }
+    if let Ok(env_path) = std::env::var("SMART_BRAIN_CONFIG") {
+        if !env_path.is_empty() {
+            candidates.push(env_path);
+        }
+    }
+    candidates.push("config.json".into());
+    candidates.push("config.example.json".into());
+    let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+    BrainConfig::load_candidates(&refs)
+}
+
 fn main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+
+    let args = match parse_args() {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("error: {e}");
+            print_help();
+            std::process::exit(2);
+        }
+    };
+    if args.help {
+        print_help();
+        return;
+    }
+    if args.version {
+        println!("brain-node {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.list {
+        list_demos();
+        return;
+    }
+
+    // 加载配置并校验（无效配置以非零退出码终止，而非 panic）。
+    let cfg = load_config(args.config.as_deref());
+    if let Err(e) = cfg.validate() {
+        eprintln!("error: invalid config: {e}");
+        std::process::exit(1);
+    }
+
     // 用单调 Stopwatch 测量整套演示的总耗时（真正单调，不受系统时间调整影响）。
     let wall = brain_core::time::Stopwatch::start();
 
-    // 加载配置：优先环境变量 SMART_BRAIN_CONFIG 指向的路径，其次 config.json，
-    // 最后回退到仓库自带的 config.example.json；全部缺失时使用内置默认值。
-    let env_path = std::env::var("SMART_BRAIN_CONFIG").unwrap_or_else(|_| String::new());
-    let mut candidates: Vec<&str> = Vec::new();
-    if !env_path.is_empty() {
-        candidates.push(&env_path);
+    // 单演示模式：`--demo <name>`。
+    if let Some(name) = args.demo.as_deref() {
+        if run_demo_by_name(name, &cfg, args.iterations) {
+            println!(
+                "\nSmart-Brain demo '{name}' finished in {:.2}s.",
+                wall.elapsed_secs()
+            );
+        } else {
+            eprintln!("error: unknown demo '{name}' (see --list)");
+            std::process::exit(2);
+        }
+        return;
     }
-    candidates.push("config.json");
-    candidates.push("config.example.json");
-    let cfg = BrainConfig::load_candidates(&candidates);
 
-    // 默认运行一次完整任务演示（SITL）。
-    run_mission_demo(30, &cfg);
-
-    // 演示独立看门狗的安全兜底机制。
-    demonstrate_failsafe(cfg.failsafe_timeout_ms);
-
-    // 演示“无人机只是众多身体之一”：通过统一 RobotBody 接口驱动。
-    embodiment::demonstrate(0);
-
-    // 室内无 GPS 自主避障（视觉定位）流水线演示。
-    indoor::run();
-
-    // Zenoh 统一通信（Pub/Sub + Store/Query + Compute）演示。
-    zenoh_demo::run();
-
-    // 闭环自主导航（感知→建图→规划→驱动→回溯）演示。
-    autopilot_demo::run();
-
-    // 汽车驾驶导航（阿克曼前轮转向 / Ackermann DWA / 自行车模型）演示。
-    car_driving_demo::run();
-
-    // 水面自动驾驶艇（双差速推进 / 水流漂移 / 定泊保持）演示。
-    boat_demo::run();
-
-    // 小脑（飞控）经 Zenoh 桥接（zenoh-pico 思路）演示。
-    zenoh_fcu_demo::run();
-
-    // Agent / LLM 思考层（工具调用驱动底层能力）演示。
-    agent_demo::run();
-
-    // 卡尔曼滤波传感器融合（IMU 预测 + VO 测量）演示。
-    kalman_demo::run();
-
-    // 步态 + 仿真集成（四足行走 / 确定性仿真后端）演示。
-    locomotion_sim_demo::run();
-
-    // 时间同步（NTP 风格四时间戳握手）演示。
-    time_sync_demo::run();
-
-    // 双目立体视觉（两个相机 → 视差 → 三维点云）演示。
-    stereo_demo::run();
-
-    // 通用状态机（RobotState）+ 通用传感器话题（sensor/imu 等）演示。
-    generic_demo::run();
-
-    // 并行（多线程）流水线：感知线程 + 决策线程共享总线。
-    parallel::run_parallel_demo();
-
-    // 安全监督器：geofence / 电量 / pre-arm 集成演示。
-    safety_guard::run_safety_demo();
-
-    // tokio 异步流水线（需 `--features async` 编译）。
-    #[cfg(feature = "async")]
-    async_runtime::run();
-
-    // 蜂群协同：Leader 选举 + 任务分配演示。
-    swarm_coord_demo::run();
-
-    // 综合任务演示（任务文件 → 执行+进度 → 蜂群 → MAVLink）。
-    comprehensive_demo::run();
-
+    // 默认：依序运行全部演示（SITL）。
+    run_all_demos(&cfg, args.iterations);
     println!(
         "\nSmart-Brain prototype finished in {:.2}s. Real backends available: serial / CAN (Linux) / ONNX + NMS.",
         wall.elapsed_secs()
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(args: &[&str]) -> Result<Args, String> {
+        parse_args_from(args.iter().map(|s| s.to_string()))
+    }
+
+    #[test]
+    fn parses_defaults() {
+        let a = parse(&[]).unwrap();
+        assert!(a.demo.is_none() && a.config.is_none());
+        assert_eq!(a.iterations, 30);
+        assert!(!a.list && !a.help && !a.version);
+    }
+
+    #[test]
+    fn parses_flags_and_values() {
+        let a = parse(&["--demo", "zenoh", "--iterations", "5"]).unwrap();
+        assert_eq!(a.demo.as_deref(), Some("zenoh"));
+        assert_eq!(a.iterations, 5);
+        let a = parse(&["--config", "/tmp/cfg.json"]).unwrap();
+        assert_eq!(a.config.as_deref(), Some("/tmp/cfg.json"));
+        assert!(parse(&["--list"]).unwrap().list);
+        assert!(parse(&["--version"]).unwrap().version);
+        assert!(parse(&["-h"]).unwrap().help);
+        assert!(parse(&["--help"]).unwrap().help);
+    }
+
+    #[test]
+    fn rejects_invalid_input() {
+        assert!(parse(&["--bogus"]).is_err());
+        assert!(parse(&["--demo"]).is_err()); // 缺值
+        assert!(parse(&["--iterations"]).is_err());
+        assert!(parse(&["--iterations", "abc"]).is_err());
+        assert!(parse(&["--iterations", "0"]).is_err()); // 必须 > 0
+        assert!(parse(&["--config"]).is_err());
+    }
+
+    #[test]
+    fn demo_registry_names_are_unique_and_nonempty() {
+        assert!(!DEMOS.is_empty());
+        let mut names: Vec<&str> = DEMOS.iter().map(|(n, _)| *n).collect();
+        let before = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), before, "demo names must be unique");
+        for (_, desc) in DEMOS {
+            assert!(!desc.is_empty());
+        }
+    }
 }

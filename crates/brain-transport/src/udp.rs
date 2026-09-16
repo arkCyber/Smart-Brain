@@ -55,6 +55,21 @@ impl UdpTransport {
             }
         }
     }
+
+    /// 本地绑定地址（用于日志/诊断）。
+    pub fn local_addr(&self) -> Option<std::net::SocketAddr> {
+        self.socket.as_ref().and_then(|s| s.local_addr().ok())
+    }
+
+    /// 当前对端地址。
+    pub fn peer(&self) -> &str {
+        &self.peer
+    }
+
+    /// 更换对端地址（支持运行期重配）。
+    pub fn set_peer(&mut self, peer: impl Into<String>) {
+        self.peer = peer.into();
+    }
 }
 
 impl FcuTransport for UdpTransport {
@@ -149,5 +164,45 @@ mod tests {
         };
         assert!(t.send_command(&cmd).is_err());
         assert!(t.try_recv_telemetry().unwrap().is_none());
+    }
+
+    #[test]
+    fn peer_and_local_addr_accessors() {
+        let mut t = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:1").unwrap();
+        // 本地地址已绑定。
+        assert!(t.local_addr().is_some());
+        // 默认对端。
+        assert_eq!(t.peer(), "127.0.0.1:1");
+        // 运行期重配对端。
+        t.set_peer("127.0.0.1:2");
+        assert_eq!(t.peer(), "127.0.0.1:2");
+        // shutdown 后 local_addr 为空。
+        t.shutdown();
+        assert!(t.local_addr().is_none());
+    }
+
+    #[test]
+    fn multiple_frames_in_one_datagram() {
+        // 同一 UDP 数据报里含两帧遥测 → FrameReader 应全部解析出来（粘包分帧）。
+        let recv = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:0").unwrap();
+        let recv_addr = recv.socket.as_ref().unwrap().local_addr().unwrap();
+        let send = UdpTransport::connect("127.0.0.1:0", "127.0.0.1:0").unwrap();
+        let mut recv = recv;
+
+        let t1 = Telemetry::default_at(1);
+        let t2 = Telemetry::default_at(2);
+        let mut datagram = encode_frame(&serde_json::to_vec(&t1).unwrap());
+        datagram.extend_from_slice(&encode_frame(&serde_json::to_vec(&t2).unwrap()));
+        send.socket
+            .as_ref()
+            .unwrap()
+            .send_to(&datagram, recv_addr)
+            .unwrap();
+
+        std::thread::sleep(Duration::from_millis(20));
+        let a = recv.try_recv_telemetry().unwrap().unwrap();
+        let b = recv.try_recv_telemetry().unwrap().unwrap();
+        assert_eq!(a.timestamp, 1);
+        assert_eq!(b.timestamp, 2);
     }
 }

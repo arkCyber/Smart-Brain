@@ -6,7 +6,7 @@
 
 use brain_core::Vec3;
 
-/// 一维恒加速卡尔曼滤波器（状态 = [位置, 速度]）。
+/// 一维恒加速卡尔曼滤波器（状态 = `[位置, 速度]`）。
 pub struct KalmanFilter {
     // 状态。
     pos: f32,

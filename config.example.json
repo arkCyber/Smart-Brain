@@ -19,5 +19,22 @@
     "prearm_require_fix3d": true,
     "prearm_min_battery_pct": 25,
     "prearm_require_home": true
+  },
+  "ollama": {
+    "endpoint": "http://localhost:11434",
+    "model": "qwen2.5",
+    "temperature": 0.7,
+    "num_predict": 1024,
+    "timeout_secs": 120
+  },
+  "hermes": {
+    "endpoint": "http://127.0.0.1:11438",
+    "model": "hermes-rust",
+    "temperature": 0.7,
+    "max_tokens": 2048,
+    "timeout_secs": 180
+  },
+  "agent": {
+    "backend": "mock"
   }
 }

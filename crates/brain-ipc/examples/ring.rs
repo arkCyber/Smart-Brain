@@ -11,11 +11,18 @@ fn main() {
         ring.push(v);
     }
     let evicted = ring.push(5.0); // 覆盖 1.0
-    println!("evicted = {evicted:?}, contents = {:?}", ring.iter().collect::<Vec<_>>());
+    println!(
+        "evicted = {evicted:?}, contents = {:?}",
+        ring.iter().collect::<Vec<_>>()
+    );
 
     // 线程安全共享缓冲
     let shared = SharedRing::new(3).unwrap();
     shared.push("a".to_string());
     shared.push("b".to_string());
-    println!("shared len = {}, oldest = {:?}", shared.len(), shared.pop_oldest());
+    println!(
+        "shared len = {}, oldest = {:?}",
+        shared.len(),
+        shared.pop_oldest()
+    );
 }

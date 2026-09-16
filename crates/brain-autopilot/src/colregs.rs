@@ -93,6 +93,17 @@ pub enum ColregsAction {
     None,
 }
 
+/// 一次多目标会遇评估中，单个目标船的分类结果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Encounter {
+    /// 目标在输入数组中的下标。
+    pub target_index: usize,
+    /// 相遇态势。
+    pub encounter: EncounterType,
+    /// 建议动作。
+    pub action: ColregsAction,
+}
+
 /// COLREGS 简化避让引擎。
 pub struct Colregs;
 
@@ -176,14 +187,65 @@ impl Colregs {
         // 交叉：对方在右舷 → 本船让路右转；
         //      对方在左舷 → 若对方是帆船且本船是机动船，机动船仍须让路（帆船优先）；
         //                   否则本船保向（对方让路）。
-        if rel_bearing > 0.0 {
-            (EncounterType::Crossing, ColregsAction::GiveWayStarboard)
-        } else if other.propulsion == Propulsion::Sailing && own.propulsion == Propulsion::PowerDriven
-        {
+        let give_way = rel_bearing > 0.0
+            || (other.propulsion == Propulsion::Sailing
+                && own.propulsion == Propulsion::PowerDriven);
+        if give_way {
             (EncounterType::Crossing, ColregsAction::GiveWayStarboard)
         } else {
             (EncounterType::Crossing, ColregsAction::StandOn)
         }
+    }
+
+    /// 对本船与多个目标船逐一分类，返回每条的分类结果（多目标协同避让输入）。
+    pub fn classify_many(
+        own: VesselPose,
+        targets: &[VesselPose],
+        params: &ColregsParams,
+    ) -> Vec<Encounter> {
+        targets
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                let (encounter, action) = Colregs::classify(own, *t, params);
+                Encounter {
+                    target_index: i,
+                    encounter,
+                    action,
+                }
+            })
+            .collect()
+    }
+
+    /// 聚合多目标动作（优先级从高到低）：
+    /// 任一目标要求本船让路 → 让路；否则受限能见度 → 安全航速；
+    /// 否则存在保向 → 保向；否则减速；再否则不动作。
+    pub fn aggregate(encounters: &[Encounter]) -> ColregsAction {
+        if encounters
+            .iter()
+            .any(|e| e.action == ColregsAction::GiveWayStarboard)
+        {
+            return ColregsAction::GiveWayStarboard;
+        }
+        if encounters
+            .iter()
+            .any(|e| e.action == ColregsAction::ProceedSafeSpeed)
+        {
+            return ColregsAction::ProceedSafeSpeed;
+        }
+        if encounters
+            .iter()
+            .any(|e| e.action == ColregsAction::StandOn)
+        {
+            return ColregsAction::StandOn;
+        }
+        if encounters
+            .iter()
+            .any(|e| e.action == ColregsAction::SlowDown)
+        {
+            return ColregsAction::SlowDown;
+        }
+        ColregsAction::None
     }
 }
 
@@ -291,5 +353,33 @@ mod tests {
         let (t, a) = Colregs::classify(own, other, &p());
         assert_eq!(t, EncounterType::Crossing);
         assert_eq!(a, ColregsAction::StandOn);
+    }
+
+    #[test]
+    fn classify_many_and_aggregate_give_way() {
+        // 本船朝 +x：目标 0 在右舷（须让路），目标 1 在左舷（保向）。
+        // 聚合结果应为让路（只要有一个要求让路）。
+        let own = VesselPose::new(0.0, 0.0, 0.0);
+        let targets = [
+            VesselPose::new(8.0, 5.0, -1.1), // 右舷 → GiveWay
+            VesselPose::new(8.0, -5.0, 1.1), // 左舷 → StandOn
+        ];
+        let enc = Colregs::classify_many(own, &targets, &p());
+        assert_eq!(enc.len(), 2);
+        assert_eq!(enc[0].action, ColregsAction::GiveWayStarboard);
+        assert_eq!(enc[1].action, ColregsAction::StandOn);
+        assert_eq!(Colregs::aggregate(&enc), ColregsAction::GiveWayStarboard);
+    }
+
+    #[test]
+    fn aggregate_none_when_all_no_risk() {
+        let own = VesselPose::new(0.0, 0.0, 0.0);
+        let targets = [
+            VesselPose::new(100.0, 100.0, 0.5),
+            VesselPose::new(200.0, -50.0, 1.0),
+        ];
+        let enc = Colregs::classify_many(own, &targets, &p());
+        assert_eq!(enc.len(), 2);
+        assert_eq!(Colregs::aggregate(&enc), ColregsAction::None);
     }
 }

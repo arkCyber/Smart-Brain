@@ -8,9 +8,7 @@
 //! 3. `dynamic_torques` 用逐腿逆动力学（RNEA）算出计入重力的 `[髋, 膝]` 力矩。
 
 use brain_core::Vec3;
-use brain_locomotion::{
-    ContactConfig, ContactModel, LegIK, WholeBodyCommand, WholeBodyController,
-};
+use brain_locomotion::{ContactConfig, ContactModel, LegIK, WholeBodyCommand, WholeBodyController};
 
 fn main() {
     // 标准四足髋位（前左/前右/后左/后右），杆长 0.4+0.4m，体重 400N。
@@ -23,7 +21,9 @@ fn main() {
     let ctl = WholeBodyController::quadruped(LegIK::new(0.4, 0.4), hips, 0.4, 400.0).unwrap();
 
     // 1) 直立站姿
-    let target = ctl.solve(&WholeBodyCommand::stand(ctl.nominal_height)).unwrap();
+    let target = ctl
+        .solve(&WholeBodyCommand::stand(ctl.nominal_height))
+        .unwrap();
     let n = ctl.leg_count();
     let q: Vec<[f32; 2]> = target.joint_targets.clone();
     let qd = vec![[0.0f32; 2]; n];

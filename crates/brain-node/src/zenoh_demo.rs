@@ -78,7 +78,10 @@ fn demonstrate_compute() {
     // 注册一个“路径规划服务”：查询即计算一条无碰撞路径。
     let handler: QueryHandler = Arc::new(|key: &str| {
         // 伪实现：返回一条直连路径的点数。
-        vec![format!("{{\"path_points\": 12, \"service\": \"{key}\"}}").into_bytes()]
+        Ok(vec![format!(
+            "{{\"path_points\": 12, \"service\": \"{key}\"}}"
+        )
+        .into_bytes()])
     });
     let _svc = z.declare_queryable("service/plan_path", handler).unwrap();
 
@@ -91,7 +94,8 @@ fn demonstrate_compute() {
 
     // 计算 + 存储聚合：查询同时拿到存储值 与 计算结果。
     z.put("sensor/front_range", b"1.2".to_vec()).unwrap();
-    let check: QueryHandler = Arc::new(|_| vec![b"{\"safe\": false, \"min_dist\": 1.2}".to_vec()]);
+    let check: QueryHandler =
+        Arc::new(|_| Ok(vec![b"{\"safe\": false, \"min_dist\": 1.2}".to_vec()]));
     let _check_h = z
         .declare_queryable("service/collision_check", check)
         .unwrap();

@@ -6,4 +6,4 @@
 
 pub mod bus;
 
-pub use bus::{DataBus, Topic};
+pub use bus::{BusMessage, DataBus, Topic};

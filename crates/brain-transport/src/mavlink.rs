@@ -455,4 +455,53 @@ mod tests {
         assert!(tx.tx_bytes().is_empty());
         assert!(tx.try_recv_telemetry().unwrap().is_none());
     }
+
+    #[test]
+    fn decode_stream_handles_split_and_concatenated() {
+        let t = MavMessage::Telemetry(sample_telemetry());
+        let c = MavMessage::Command(Command {
+            timestamp: 5,
+            mode: Mode::Cruise,
+            target: CommandTarget::Position {
+                north: 1.0,
+                east: 2.0,
+                down: -30.0,
+            },
+        });
+        let tf = t.to_frame();
+        let cf = c.to_frame();
+        // 半包：只给第一帧的一半。
+        let mut reader = FrameReader::new();
+        let half = tf.len() / 2;
+        assert!(decode_stream(&mut reader, &tf[..half]).unwrap().is_empty());
+        // 剩余一半 + 粘包另一整帧 → 两帧都解析出来且有序。
+        let mut rest = tf[half..].to_vec();
+        rest.extend_from_slice(&cf);
+        let msgs = decode_stream(&mut reader, &rest).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0], t);
+        assert_eq!(msgs[1], c);
+    }
+
+    #[test]
+    fn malformed_data_returns_error_not_panic() {
+        let c = Command {
+            timestamp: 1,
+            mode: Mode::Cruise,
+            target: CommandTarget::None,
+        };
+        // 非法 mode 字节（>6）→ 报错而非 panic。
+        // 布局：index0=msgid, 1..9=timestamp(8B), 9=mode。
+        let mut bad_mode = MavMessage::Command(c.clone()).encode();
+        bad_mode[9] = 99;
+        assert!(MavMessage::decode(&bad_mode).is_err());
+        // 未知 msgid → 报错。
+        let mut unknown = vec![0xEE];
+        unknown.extend_from_slice(&encode_command(&c));
+        assert!(MavMessage::decode(&unknown).is_err());
+        // 空消息 → 报错。
+        assert!(MavMessage::decode(&[]).is_err());
+        // 截断的 command 负载 → 报错。
+        assert!(MavMessage::decode(&[MSG_COMMAND, 1, 2, 3]).is_err());
+    }
 }

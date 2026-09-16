@@ -80,7 +80,7 @@ impl KinematicChain {
         (t, frames)
     }
 
-    /// 几何雅可比（6×dof，行优先：[0..3] 线速度，[3..6] 角速度）。
+    /// 几何雅可比（6×dof，行优先：`[0..3]` 线速度，`[3..6]` 角速度）。
     pub fn jacobian(&self) -> Vec<Vec<f32>> {
         let (ee, frames) = self.forward_kinematics();
         let n = self.dof();

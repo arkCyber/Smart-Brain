@@ -45,6 +45,42 @@ pub enum FixType {
     Fix3D,
 }
 
+impl FixType {
+    /// 稳定字符串名（用于日志/配置）。
+    pub fn name(self) -> &'static str {
+        match self {
+            FixType::NoFix => "NoFix",
+            FixType::Fix2D => "Fix2D",
+            FixType::Fix3D => "Fix3D",
+        }
+    }
+
+    /// 从字符串名解析（大小写不敏感）；未知返回 `None`。
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            s if s.eq_ignore_ascii_case("NoFix") => Some(FixType::NoFix),
+            s if s.eq_ignore_ascii_case("Fix2D") => Some(FixType::Fix2D),
+            s if s.eq_ignore_ascii_case("Fix3D") => Some(FixType::Fix3D),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for FixType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+impl std::str::FromStr for FixType {
+    type Err = brain_core::BrainError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_name(s)
+            .ok_or_else(|| brain_core::BrainError::Other(format!("unknown fix type: {s:?}")))
+    }
+}
+
 /// 电池状态。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BatteryStatus {
@@ -78,6 +114,13 @@ impl Telemetry {
             },
             velocity: Vec3::default(),
         }
+    }
+}
+
+impl Default for Telemetry {
+    /// 零时间戳的默认遥测（可用于占位/未接采集器时兜底）。
+    fn default() -> Self {
+        Self::default_at(0)
     }
 }
 
@@ -123,6 +166,24 @@ mod tests {
             let back: FixType = serde_json::from_str(&json).unwrap();
             assert_eq!(back, f);
         }
+    }
+
+    #[test]
+    fn fix_type_name_and_from_name() {
+        assert_eq!(FixType::Fix3D.name(), "Fix3D");
+        assert_eq!(format!("{}", FixType::Fix2D), "Fix2D");
+        assert_eq!(FixType::from_name("nofix"), Some(FixType::NoFix));
+        assert_eq!(FixType::from_name("Fix3D"), Some(FixType::Fix3D));
+        assert_eq!(FixType::from_name("bogus"), None);
+        assert_eq!("fix2d".parse::<FixType>().unwrap(), FixType::Fix2D);
+    }
+
+    #[test]
+    fn telemetry_default_is_zero_timestamp() {
+        let t = Telemetry::default();
+        assert_eq!(t.timestamp, 0);
+        assert_eq!(t.battery.remaining_pct, 100.0);
+        assert_eq!(t.gps.fix_type, FixType::NoFix);
     }
 
     #[test]

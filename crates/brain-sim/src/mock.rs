@@ -1,6 +1,6 @@
 //! 确定性进程内仿真后端：2D 栅格世界 + 速度积分 + 测距 + 目标检测。
 //!
-//! 作为 [`Simulator`](crate::sim::Simulator) 的默认实现，供 SITL 与单元测试
+//! 作为 [`Simulator`] 的默认实现，供 SITL 与单元测试
 //! 直接使用；无任何系统级依赖、可复现。
 
 use brain_core::time::instant_now;

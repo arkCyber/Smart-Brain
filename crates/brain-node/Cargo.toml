@@ -4,6 +4,12 @@ description = "Smart-Brain main executable: assembles and drives all modules"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 brain-core.workspace = true
@@ -34,6 +40,10 @@ serde_json.workspace = true
 [features]
 default = []
 async = ["dep:tokio"]
+# 启用 Ollama 推理演示（转发到 brain-agent 的 ollama 后端）。
+ollama = ["brain-agent/ollama"]
+# 启用 Hermes 智能体 daemon 演示（转发到 brain-agent 的 hermes 后端）。
+hermes = ["brain-agent/hermes"]
 
 [dependencies.tokio]
 version = "1"
