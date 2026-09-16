@@ -22,7 +22,7 @@ jobs:
     name: build / test / clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -63,7 +63,7 @@ jobs:
     name: build / test (macOS arm64)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # 跨平台可移植性：除 Linux 外的第二个 OS。
@@ -77,7 +77,7 @@ jobs:
     name: real-zenoh feature build / clippy / test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -95,7 +95,7 @@ jobs:
     name: onnx / can / serial feature build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -135,7 +135,7 @@ jobs:
     name: tokio async feature build / test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -149,7 +149,7 @@ jobs:
     name: rustdoc build (deny warnings)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # 公共 API 文档也是交付物：断链 / 非法 intra-doc link 必须让 CI 失败。
