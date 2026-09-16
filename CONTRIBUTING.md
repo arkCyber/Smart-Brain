@@ -3,7 +3,8 @@
 感谢你有兴趣参与！Smart-Brain 是一个 Rust workspace（“AI 大脑”），为**无人机、
 汽车、水面艇、足式机器人**提供自主导航与决策能力。
 
-- 📖 先读 [README.md](README.md) 与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 了解分层；
+- 📖 先读 [README.md](README.md)（英文）/ [README.zh-CN.md](README.zh-CN.md)（中文）
+  与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) 了解分层；
 - 🛠 环境与命令见 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)；
 - 🤝 参与即表示你同意遵守 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)。
 

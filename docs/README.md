@@ -4,6 +4,8 @@
 
 | 文档 | 内容 | 适合谁读 |
 |------|------|----------|
+| [../README.md](../README.md) | 英文版 README（GitHub 默认展示）：定位、快速开始、crate 布局、feature 矩阵、质量门禁 | 所有人 |
+| [../README.zh-CN.md](../README.zh-CN.md) | 中文版 README（含各模块的详细实现说明与真机部署路线） | 中文读者 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 分层架构、crate 依赖图、数据流、大脑/小脑边界、关键抽象（trait）清单 | 想理解设计、要做扩展的开发者 |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | 开发环境搭建、构建/测试/lint 命令、feature 矩阵、CI 说明、调试与故障排查 | 首次参与贡献的开发者 |
 | [DEPLOYMENT.md](DEPLOYMENT.md) | 从 SITL 到真机的四阶段部署路线、配置项说明、安全与 fail-safe 注意事项 | 要在真机/仿真平台落地的人 |

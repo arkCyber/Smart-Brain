@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **中英文双语 README**：`README.md` 现为**英文版**（GitHub 默认展示，符合 GitHub
+  社区惯例：徽章、目录、Highlights、架构分层表、快速开始、workspace 布局、feature
+  矩阵、质量门禁、部署路线、Roadmap、文档导航、贡献/安全/许可与免责声明）；原中文
+  内容迁移为 **`README.zh-CN.md`**（用 `git mv` 保留历史），两版顶部互相切换。
+  `docs/README.md`、`CONTRIBUTING.md`、`SUPPORT.md` 同步补充语言入口。
+
 ### Changed
 - **Release 流水线改为「构建 + 单独发布」两阶段**：多平台构建（矩阵）与发布
   （`publish` job）分离，避免多个平台任务并发创建同一个 GitHub Release 导致

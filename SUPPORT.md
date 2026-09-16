@@ -8,7 +8,7 @@
 | 新功能、新平台（Gazebo/AirSim、机械臂等）建议 | [Feature request 模板](https://github.com/arkCyber/Smart-Brain/issues/new/choose) |
 | 安全漏洞 | **不要开 Issue**，见 [SECURITY.md](SECURITY.md) |
 | 贡献代码 | 见 [CONTRIBUTING.md](CONTRIBUTING.md) 与 [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) |
-| 架构/分层/术语疑问 | 先读 [README.md](README.md) 与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 架构/分层/术语疑问 | 先读 [README.md](README.md)（英文）/ [README.zh-CN.md](README.zh-CN.md)（中文）与 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
 | 真机部署 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) |
 | 其他 | 邮件联系维护者 **arkSong** — arksong2018@gmail.com |
 
