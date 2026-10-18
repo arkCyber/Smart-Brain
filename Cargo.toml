@@ -56,7 +56,7 @@ brain-agent = { path = "crates/brain-agent" }
 brain-locomotion = { path = "crates/brain-locomotion" }
 brain-sim = { path = "crates/brain-sim" }
 
-thiserror = "1.0"
+thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 log = "0.4"
